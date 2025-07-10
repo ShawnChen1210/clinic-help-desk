@@ -5,8 +5,5 @@ from .utils import *
 from .forms import *
 # Create your views here.
 
-
-
-@login_required
 def index(request):
     return render(request, 'index.html')
