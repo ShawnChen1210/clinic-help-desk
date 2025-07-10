@@ -130,3 +130,6 @@ STATICFILES_DIRS = [
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+LOGOUT_URL = '/logout/'  # or whatever your logout URL is
+LOGOUT_REDIRECT_URL = '/'  # redirect to home instead of admin

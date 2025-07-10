@@ -1,15 +1,11 @@
-{% load static %}
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Log In</title>
-</head>
-<body>
-    <form method="POST">
+{% extends 'base.html' %}
+
+{% block title %} Log In {% endblock %}
+
+{% block content %}
+<form method="POST">
         {% csrf_token %}
         {{ form }}
         <input type="submit" value="Login">
     </form>
-</body>
-</html>
+{% endblock %}
