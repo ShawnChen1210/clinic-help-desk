@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+
+{% block title %} Members {% endblock %}
+
+{% block content %}
+<table>
+    <thead>
+        <tr>
+            <th>User ID</th>
+            <th>Username</th>
+            <th>First Name</th>
+            <th>Last Name</th>
+            <th>Email</th>
+            <th>Is allowed access?</th>
+            <th>Is Staff?</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for user in users %}
+        <tr>
+            <td>{{ user.id }}</td>
+            <td>{{ user.username }}</td>
+            <td>{{ user.email }}</td>
+            <td>{{ user.first_name }}</td>
+            <td>{{ user.last_name }}</td>
+            <td>
+                {{ user.userprofile.is_verified }}
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="verify_user">
+                    <input type="hidden" name="user_id" value="{{ user.id }}">
+                    <button type="submit">Toggle</button>
+                </form>
+            </td>
+            <td>{{ user.is_staff }}</td>
+        </tr>
+        {% empty %}
+        <tr>
+            <td>No users found.</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+
+</table>
+{% endblock %}

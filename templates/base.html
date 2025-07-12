@@ -12,12 +12,15 @@
         <a href="{% url 'index' %}">Home</a>
         {% if user.is_authenticated %}
             <form method="post" action="{% url 'logout' %}" style="display: inline;">
-            {% csrf_token %}
-            <button type="submit">Logout</button>
-        </form>
+                {% csrf_token %}
+                <button type="submit">Logout</button>
+            </form>
         {% else %}
             <a href="{% url 'login_user' %}">Login</a>
             <a href="{% url 'register' %}">Register</a>
+        {% endif %}
+        {% if request.user.is_staff %}
+            <a href="{% url 'members' %}">Members</a>
         {% endif %}
     </nav>
     </header>

@@ -3,5 +3,12 @@
 {% block title %} home {% endblock %}
 
 {% block content %}
+    {% if messages %}
+    {% for message in messages %}
+    <div>
+    {{ message }}
+    </div>
+    {% endfor %}
+    {% endif %}
 <h1>Test</h1>
 {% endblock %}
