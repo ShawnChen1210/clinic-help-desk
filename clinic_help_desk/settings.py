@@ -43,6 +43,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'help_desk',
     'registration',
+    'tailwind',
+    'theme',
 ]
 
 MIDDLEWARE = [
@@ -144,3 +146,7 @@ EMAIL_HOST_PASSWORD = 'rtawjazowvgzobsm'  # SMTP server password
 EMAIL_USE_SSL = False  # Set to True if using SSL
 DEFAULT_FROM_EMAIL = 'clinic.help.desk.app@gmail.com'
 PASSWORD_RESET_TIMEOUT = 14400 #token available for 4 hours
+
+#tailwind stuff
+TAILWIND_APP_NAME = 'theme'
+NPM_BIN_PATH = "C:/Program Files/nodejs/npm.cmd"

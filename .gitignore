@@ -2,3 +2,19 @@
 db.sqlite3
 .venv/
 clinic-help-desk-8dba30a80adf.json
+
+# Generated Tailwind files
+theme/static/css/dist/
+theme/static/css/*.css
+
+# Node.js files
+node_modules/
+package-lock.json
+
+# Django static files
+staticfiles/
+static/
+
+# Python cache
+__pycache__/
+*.pyc
