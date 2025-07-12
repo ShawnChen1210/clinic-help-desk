@@ -81,12 +81,30 @@ def register_user(request):
     return render(request, 'register.html', {"form": RegistrationForm})
 
 def members(request):
-    if request.method == 'POST':
-        action = request.POST.get('action')
-        user_id = request.POST.get('user_id')
-        if action == 'verify_user':
-            user = User.objects.get(pk=user_id)
-            user.userprofile.is_verified = True
-            user.userprofile.save()
-    users = User.objects.select_related('userprofile').all()
-    return render(request, 'members.html', {"users": users})
+    if request.user.is_staff: #extra security to make sure only staff can access
+        if request.method == 'POST':
+            action = request.POST.get('action')
+            user_id = request.POST.get('user_id')
+
+            if action == 'verify_user':
+                user = User.objects.get(pk=user_id)
+                if user.userprofile.is_verified:
+                    user.userprofile.is_verified = False
+                    user.userprofile.save()
+                else:
+                    user.userprofile.is_verified = True
+                    user.userprofile.save()
+
+            if action == 'make_staff':
+                user = User.objects.get(pk=user_id)
+                if user.is_staff:
+                    user.is_staff = False
+                    user.save()
+                else:
+                    user.is_staff = True
+                    user.save()
+
+        users = User.objects.select_related('userprofile').exclude(pk=request.user.pk).all()
+        return render(request, 'members.html', {"users": users})
+    else:
+        return redirect('index')

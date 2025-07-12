@@ -20,19 +20,31 @@
         <tr>
             <td>{{ user.id }}</td>
             <td>{{ user.username }}</td>
-            <td>{{ user.email }}</td>
             <td>{{ user.first_name }}</td>
             <td>{{ user.last_name }}</td>
+            <td>{{ user.email }}</td>
             <td>
+                <div>
                 {{ user.userprofile.is_verified }}
-                <form method="post">
+                    <form method="post">
                     {% csrf_token %}
                     <input type="hidden" name="action" value="verify_user">
                     <input type="hidden" name="user_id" value="{{ user.id }}">
                     <button type="submit">Toggle</button>
-                </form>
+                    </form>
+                </div>
             </td>
-            <td>{{ user.is_staff }}</td>
+            <td>
+                <div>
+                    {{ user.is_staff }}
+                    <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="make_staff">
+                    <input type="hidden" name="user_id" value="{{ user.id }}">
+                    <button type="submit">Toggle</button>
+                    </form>
+                </div>
+            </td>
         </tr>
         {% empty %}
         <tr>
