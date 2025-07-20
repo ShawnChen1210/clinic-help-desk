@@ -12,12 +12,17 @@
     <header>
     <div class="bg-blue-900 text-white">
         <nav class="flex justify-between items-center">
+        
             <div class="flex space-x-4">    
                 <a class="p-4" href="{% url 'index' %}">Home</a>
+                {% if request.user.userprofile.is_verified %}
+                <a class="p-4" href="{% url 'dashboard' %}">Dashboard</a>
+                {% endif %}
                 {% if request.user.is_staff %}
                     <a class="p-4" href="{% url 'members' %}">Members</a>
                 {% endif %}
             </div>
+        
             <div class="flex space-x-4">
                 {% if user.is_authenticated %}
                     <form method="post" action="{% url 'logout' %}" style="display: inline;">

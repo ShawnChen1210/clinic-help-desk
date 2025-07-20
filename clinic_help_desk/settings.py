@@ -19,6 +19,8 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 GOOGLE_SERVICE_ACCOUNT_KEY = os.path.join(BASE_DIR, 'clinic-help-desk-8dba30a80adf.json')
+GOOGLE_API_KEY = 'AIzaSyBY-HP2CegFAit1pb1wjLZaPk4ETiZWTdY'
+SHARED_DRIVE_ID = '0AItIf3a1ARFYUk9PVA'
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -150,3 +152,4 @@ PASSWORD_RESET_TIMEOUT = 14400 #token available for 4 hours
 #tailwind stuff
 TAILWIND_APP_NAME = 'theme'
 NPM_BIN_PATH = "C:/Program Files/nodejs/npm.cmd"
+

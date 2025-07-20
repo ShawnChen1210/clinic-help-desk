@@ -30,7 +30,7 @@
                     {% csrf_token %}
                     <input type="hidden" name="action" value="verify_user">
                     <input type="hidden" name="user_id" value="{{ user.id }}">
-                    <button type="submit">Toggle</button>
+                    <button class="bg-gray-600 text-white rounded-md p-1.5" type="submit">Toggle</button>
                     </form>
                 </div>
             </td>
@@ -41,7 +41,7 @@
                     {% csrf_token %}
                     <input type="hidden" name="action" value="make_staff">
                     <input type="hidden" name="user_id" value="{{ user.id }}">
-                    <button type="submit">Toggle</button>
+                    <button class="bg-gray-600 text-white rounded-md p-1.5" type="submit">Toggle</button>
                     </form>
                 </div>
             </td>

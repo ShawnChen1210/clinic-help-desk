@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+
+{% block title %} Dashboard {% endblock %}
+
+{% block content %}
+    {% if messages %}
+    {% for message in messages %}
+    <div>
+    {{ message }}
+    </div>
+    {% endfor %}
+    {% endif %}
+    <h1 class="text-2xl">Dashboard</h1>
+    <h4>Create Spreadsheet</h4>
+    <form method="post">
+    {% csrf_token %}
+        <button class="bg-gray-600 text-white rounded-md p-1.5"
+                type="submit" name="action" value="create_spreadsheet">Create</button>
+    </form>
+    <form method="post">
+    {% csrf_token %}
+        <button class="bg-gray-600 text-white rounded-md p-1.5"
+                type="submit" name="action" value="browse_drive">Test</button>
+    </form>
+    <h4>Your Spreadsheets</h4>
+    <ul>
+
+    </ul>
+
+{% endblock %}
