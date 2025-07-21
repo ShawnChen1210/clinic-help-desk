@@ -23,6 +23,7 @@ def create_new_google_sheet(title = "New Sheet"): #title needs to be filled when
         print(f"Error creating spreadsheet: {e}")
         return None
 
+
 def delete_google_sheet(sheetID):
     drive_service = get_google_drive_service_creds()
 
@@ -96,3 +97,15 @@ def grant_editor_access(spreadsheet_id, email): #gives editor access to users wh
         body=permission,
         supportsAllDrives=True
     ).execute()
+
+def read_google_sheets(s_column, s_row, e_column, e_row): #inputs column range from A-Z and row range from 1-100000000. s for start and e for end
+    sheets_service = get_google_sheets_service_creds()
+    range_name = str(s_column) + str(s_row) + ':' + str(e_column) + str(e_row)
+    try:
+        result = sheets_service.spreadsheets().values().get(
+            spreadsheetId=SHARED_DRIVE_ID,
+            range=range_name
+        ).get('values', [])
+        return result
+    except Exception as e:
+        print(f"Error reading google sheets: {e}")

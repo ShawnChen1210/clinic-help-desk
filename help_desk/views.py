@@ -16,7 +16,7 @@ def dashboard(request):
         user = request.user
         action = request.POST.get('action')
         if action == 'create_spreadsheet':
-            sheet_name = request.user.first_name + ' ' + request.user.last_name + ' Spreadsheet'
+            sheet_name = request.POST.get('sheet_name')
             test_drive_connection()
             sheet_id = create_new_google_sheet(sheet_name)
             if sheet_id:
