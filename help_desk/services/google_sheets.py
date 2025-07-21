@@ -27,20 +27,35 @@ def delete_google_sheet(sheetID):
     drive_service = get_google_drive_service_creds()
 
     try:
-        drive_service.files().delete(fileId=sheetID).execute()
+        drive_service.files().delete(
+            fileId = sheetID,
+            supportsAllDrives = True
+        ).execute()
+
         return True
-    except Exception as e:
+    except Exception as e: #debug. check console for print error if any arises
         print(f"Error deleting spreadsheet: {e}")
         return False
 
+def rename_google_sheet(sheetID, name):
+    drive_service = get_google_drive_service_creds()
+    try:
+        drive_service.files().delete(
+            fileId = sheetID,
+            supportsAllDrives = True
+        ).execute()
 
+        return True
+    except Exception as e: #debug. check console for print error if any arises
+        print(f"Error deleting spreadsheet: {e}")
+        return False
 
 
 def test_drive_connection():
     try:
         drive_service = get_google_drive_service_creds()
         drive_info = drive_service.drives().get(driveId=SHARED_DRIVE_ID).execute()
-        print(f"✅ Connected to: {drive_info['name']}")
+        print(f" Connected to: {drive_info['name']}")
         results = drive_service.files().list(
             q=f"parents in '{SHARED_DRIVE_ID}'",
             supportsAllDrives=True,
@@ -51,7 +66,7 @@ def test_drive_connection():
         for file in results.get('files', []):
             print(f"Name: {file['name']}, ID: {file['id']}")
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f" Error: {e}")
 
         if "404" in str(e):
             print("\n💡 Troubleshooting 404 error:")

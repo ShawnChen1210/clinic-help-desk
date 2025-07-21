@@ -13,6 +13,7 @@ def index(request):
 @login_required(login_url='login_user')
 def dashboard(request):
     if request.method == 'POST':
+        user = request.user
         action = request.POST.get('action')
         if action == 'create_spreadsheet':
             sheet_name = request.user.first_name + ' ' + request.user.last_name + ' Spreadsheet'
@@ -21,8 +22,20 @@ def dashboard(request):
             if sheet_id:
                 UserSheet.objects.create(user=request.user, sheet_id=sheet_id, sheet_name=sheet_name)
                 grant_editor_access(sheet_id, request.user.email) #gives sheet access to the user's email
+
         elif action == 'browse_drive':
             test_drive_connection()
+
+        elif action == 'delete_spreadsheet' or action == 'rename_spreadsheet':
+            spreadsheet_id = request.POST.get('spreadsheet_id')
+            if user.usersheet_set.filter(id=spreadsheet_id).exists():
+                UserSheetObj = UserSheet.objects.get(id=spreadsheet_id)
+                if action == 'delete_spreadsheet': #confirm if the user does own the spreadsheet
+                    delete_google_sheet(UserSheetObj.sheet_id)
+                    UserSheetObj.delete()
+                elif action == 'rename_spreadsheet':
+                    rename_google_sheet(UserSheetObj.sheet_id, spreadsheet_id)
+
 
 
     spreadsheets = UserSheet.objects.filter(user=request.user)

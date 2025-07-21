@@ -10,8 +10,8 @@
     </div>
     {% endfor %}
     {% endif %}
-    <h1 class="text-2xl">Dashboard</h1>
-    <h4>Create Spreadsheet</h4>
+    <h1 class="text-2xl font-bold">Dashboard</h1>
+    <h4 class="font-bold">Create Spreadsheet</h4>
     <form method="post">
     {% csrf_token %}
         <button class="bg-gray-600 text-white rounded-md p-1.5"
@@ -22,9 +22,21 @@
         <button class="bg-gray-600 text-white rounded-md p-1.5"
                 type="submit" name="action" value="browse_drive">Test</button>
     </form>
-    <h4>Your Spreadsheets</h4>
+    <h4 class="font-bold">Your Spreadsheets</h4>
     <ul>
-
+    {% for spreadsheet in spreadsheets %}
+        <li class="underline text-blue-500">
+            {{ spreadsheet.sheet_name }}
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="spreadsheet_id" value="{{ spreadsheet.id }}">
+                <button class="bg-red-900 text-white rounded-md p-1.5"
+                type="submit" name="action" value="delete_spreadsheet">Delete</button>
+                <button class="bg-gray-600 text-white rounded-md p-1.5"
+                type="submit" name="action" value="rename_spreadsheet">Rename</button>
+            </form>
+        </li>
+    {% endfor %}
     </ul>
 
 {% endblock %}
