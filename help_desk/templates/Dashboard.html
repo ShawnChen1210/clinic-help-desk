@@ -11,6 +11,8 @@
     {% endfor %}
     {% endif %}
     <h1 class="text-2xl font-bold">Dashboard</h1>
+
+    <br>
     <h4 class="font-bold">Create Spreadsheet</h4>
     <form method="post">
     {% csrf_token %}
@@ -18,12 +20,14 @@
         <button class="bg-gray-600 text-white rounded-md p-1.5"
                 type="submit" name="action" value="create_spreadsheet">Create</button>
     </form>
-    <h4 class="font-bold">Your Spreadsheets</h4>
+
+    <br>
+    <h4 class="font-bold">Your Spreadsheets:</h4>
     <ul>
     {% for spreadsheet in spreadsheets %}
-        <li>
+        <li class="flex flex-row w-1/2 items-center p-1 m-1 rounded-md border border-gray-400">
             <a class="underline text-blue-500" href="{% url 'sheet' sheet_id=spreadsheet.sheet_id %}">{{ spreadsheet.sheet_name }}</a>
-            <form method="post">
+            <form method="post" class="ml-auto">
                 {% csrf_token %}
                 <input type="hidden" name="spreadsheet_id" value="{{ spreadsheet.id }}">
                 <button class="bg-red-900 text-white rounded-md p-1.5"

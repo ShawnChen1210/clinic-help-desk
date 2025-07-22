@@ -1,6 +1,7 @@
 from help_desk.utils import *
 from clinic_help_desk.settings import *
 
+
 def create_new_google_sheet(title = "New Sheet"): #title needs to be filled when function is referenced, New Sheet is default name if no title is given
     drive_service = get_google_drive_service_creds()
     spreadsheet_metadata = {
@@ -98,14 +99,28 @@ def grant_editor_access(spreadsheet_id, email): #gives editor access to users wh
         supportsAllDrives=True
     ).execute()
 
-def read_google_sheets(s_column, s_row, e_column, e_row): #inputs column range from A-Z and row range from 1-100000000. s for start and e for end
+def read_google_sheets(sheet_id, range_name): #inputs column range from A-Z and row range from 1-100000000.
     sheets_service = get_google_sheets_service_creds()
-    range_name = str(s_column) + str(s_row) + ':' + str(e_column) + str(e_row)
     try:
         result = sheets_service.spreadsheets().values().get(
-            spreadsheetId=SHARED_DRIVE_ID,
+            spreadsheetId=sheet_id,
             range=range_name
-        ).get('values', [])
-        return result
+        ).execute()
+        return result.get('values', [])
     except Exception as e:
         print(f"Error reading google sheets: {e}")
+        return []
+
+#returns a list of lists that has equal rows and columns since if one row has 3 cells and one row has 4 cells, google's .spreadsheets().values().get() does not return an additional empty cell for the row with 3 cells. this fixes that.
+def padded_google_sheets(sheet_id, range_name):
+    sheet_data = read_google_sheets(sheet_id, range_name)
+
+    if sheet_data:
+        max_length = max(len(row) for row in sheet_data) #returns the row with the longest length
+        padded_data = []
+        for row in sheet_data:
+            padded_row = row + [''] * (max_length - len(row))
+            padded_data.append(padded_row)
+        return padded_data
+    else:
+        return []
