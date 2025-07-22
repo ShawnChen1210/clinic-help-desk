@@ -21,8 +21,8 @@
     <h4 class="font-bold">Your Spreadsheets</h4>
     <ul>
     {% for spreadsheet in spreadsheets %}
-        <li class="underline text-blue-500">
-            {{ spreadsheet.sheet_name }}
+        <li>
+            <a class="underline text-blue-500" href="{% url 'sheet' sheet_id=spreadsheet.sheet_id %}">{{ spreadsheet.sheet_name }}</a>
             <form method="post">
                 {% csrf_token %}
                 <input type="hidden" name="spreadsheet_id" value="{{ spreadsheet.id }}">

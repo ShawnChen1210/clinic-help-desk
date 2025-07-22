@@ -1,5 +1,5 @@
 from django.contrib.auth.decorators import login_required
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from django.http import HttpResponse
 from .utils import *
 from .forms import *
@@ -40,3 +40,10 @@ def dashboard(request):
 
     spreadsheets = UserSheet.objects.filter(user=request.user)
     return render(request, 'dashboard.html' , {'spreadsheets':spreadsheets})
+
+def sheet(request, sheet_id):
+    user = request.user
+    if user.usersheet_set.filter(id=sheet_id).exists(): #if spreadsheet exists and the sheet belongs to the user
+        return render(request, 'sheet.html')
+    else:
+        return redirect(dashboard)
