@@ -1,5 +1,6 @@
 from help_desk.utils import *
 from clinic_help_desk.settings import *
+import csv
 
 
 def create_new_google_sheet(title = "New Sheet"): #title needs to be filled when function is referenced, New Sheet is default name if no title is given
@@ -117,10 +118,19 @@ def padded_google_sheets(sheet_id, range_name):
 
     if sheet_data:
         max_length = max(len(row) for row in sheet_data) #returns the row with the longest length
+        padded_header = []
         padded_data = []
-        for row in sheet_data:
-            padded_row = row + [''] * (max_length - len(row))
-            padded_data.append(padded_row)
-        return padded_data
+        for i, row in enumerate(sheet_data):
+            if i == 0:
+                padded_header = row + [''] * (max_length - len(row))
+            else:
+                padded_row = row + [''] * (max_length - len(row))
+                padded_data.append(padded_row)
+        return padded_data, padded_header
     else:
-        return []
+        return [], []
+
+def batch_upload_csv(csv_file_path, spreadsheet_id):
+    with open(csv_file_path, 'r') as file:
+        csv_reader = csv.reader(file)
+        values = list(csv_reader)

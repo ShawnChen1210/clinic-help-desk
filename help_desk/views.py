@@ -44,15 +44,16 @@ def dashboard(request):
 def sheet(request, sheet_id):
 
     user = request.user
-
     if user.usersheet_set.filter(sheet_id=sheet_id).exists(): #if spreadsheet exists and the sheet belongs to the user
-        sheet_data = padded_google_sheets(sheet_id,'A1:Z50')
+        sheet_data, sheet_header = padded_google_sheets(sheet_id,'A1:Z50')
         usersheet = user.usersheet_set.get(sheet_id=sheet_id)
 
         return render(request, 'sheet.html', {
             'sheet_data': sheet_data,
             'sheet_name': usersheet.sheet_name,
-            'sheet_date': usersheet.created_at
+            'sheet_date': usersheet.created_at,
+            'sheet_header': sheet_header,
+            'sheet_id': sheet_id
         })
 
     else:
