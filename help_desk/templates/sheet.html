@@ -16,29 +16,29 @@
 
     <br>
     <br>
-    <!-- Sheet -->
-    <div>
-        <table class="table-auto w-full">
+    <!-- the HTML for the spreadsheet -->
+    <div class="overflow-auto sticky bottom-0 max-h-[75vh]">
+        <table class="w-full min-w-max table-fixed border-collapse">
             {% if sheet_data %}
                 <thead>
-                    <tr class="flex">
+                    <tr>
                         {% for cell in sheet_header %}
                         {% if cell %}
-                        <th class="border border-gray-400 flex-1 font-bold">{{ cell }}</th>
+                        <th class="border border-gray-300 p-2 font-bold">{{ cell }}</th>
                         {% else %}
-                        <th class="border border-gray-400 flex-1">&nbsp;</th>
+                        <th class="border border-gray-300 p-2 font-bold">&nbsp;</th>
                         {% endif %}
                         {% endfor %}
                     </tr>
                 </thead>
                 <tbody>
                     {% for row in sheet_data %}
-                    <tr class="flex">
+                    <tr>
                         {% for cell in row %}
                             {% if cell %}
-                            <td class="border border-gray-400 flex-1">{{ cell }}</td>
+                            <td class="border border-gray-300 p-2">{{ cell }}</td>
                             {% else %}
-                            <td class="border border-gray-400 flex-1">&nbsp;</td>
+                            <td class="border border-gray-300 p-2">&nbsp;</td>
                             {% endif %}
                         {% endfor %}
                     </tr>
@@ -66,7 +66,7 @@
                         <input id="file-input" type="file" class="hidden" name="uploaded_file" onchange="showFileName(this)">
                     </label>
                     <span id="file-name" class="ml-2 text-gray-600"></span>
-                    <button class="border border-gray-400 text-gray-400 rounded-md p-1.5" type="submit">Upload</button>
+                    <button class="border border-gray-400 text-gray-400 rounded-md p-1.5" type="submit" name="upload_file">Upload</button>
                 </form>
             </div>
             <button onclick="hideModal()" class="bg-gray-500 text-white px-4 py-2 rounded">Close</button>

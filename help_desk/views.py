@@ -5,6 +5,7 @@ from .utils import *
 from .forms import *
 from .models import *
 from .services.google_sheets import *
+import tempfile
 # Create your views here.
 
 def index(request):
@@ -44,6 +45,27 @@ def dashboard(request):
 def sheet(request, sheet_id):
 
     user = request.user
+    if request.method == 'POST':
+        if 'upload_file' in request.POST and 'uploaded_file' in request.FILES: #if the user uploads a file
+            print("uploading file")
+            uploaded_file = request.FILES['uploaded_file']
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as temp_file:
+                # Write uploaded content to temp file
+                for chunk in uploaded_file.chunks():
+                    temp_file.write(chunk)
+                temp_file_path = temp_file.name
+                print(temp_file_path)
+
+            try:
+                # batch uploads the file to the google sheet
+                result = batch_upload_csv(temp_file_path, sheet_id)
+
+            finally:
+                # Always delete the temp file
+                if os.path.exists(temp_file_path):
+                    os.remove(temp_file_path)
+
+
     if user.usersheet_set.filter(sheet_id=sheet_id).exists(): #if spreadsheet exists and the sheet belongs to the user
         sheet_data, sheet_header = padded_google_sheets(sheet_id,'A1:Z50')
         usersheet = user.usersheet_set.get(sheet_id=sheet_id)

@@ -131,6 +131,27 @@ def padded_google_sheets(sheet_id, range_name):
         return [], []
 
 def batch_upload_csv(csv_file_path, spreadsheet_id):
+    sheets_service = get_google_sheets_service_creds()
+
     with open(csv_file_path, 'r') as file:
         csv_reader = csv.reader(file)
         values = list(csv_reader)
+
+    requests = [{
+        'updateCells': {
+            'start': {'sheetId': 0, 'rowIndex': 0, 'columnIndex': 0},
+            'rows': [
+                {'values': [{'userEnteredValue': {'stringValue': str(cell)}}
+                            for cell in row]}
+                for row in values
+            ],
+            'fields': 'userEnteredValue'
+        }
+    }]
+
+    body = {'requests': requests}
+    sheets_service.spreadsheets().batchUpdate(
+        spreadsheetId=spreadsheet_id,
+        body=body
+    ).execute()
+    return True
