@@ -4,7 +4,8 @@ from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
 from django.conf import settings
 
-#returns api credential object
+#THIS FILE IS USED TO GET GOOGLE API CREDENTIAL OBJECTS
+#returns sheets api credential object
 def get_google_sheets_service_creds():
     print(f"Service account file path: {settings.GOOGLE_SERVICE_ACCOUNT_KEY}")
     print(f"File exists: {os.path.exists(settings.GOOGLE_SERVICE_ACCOUNT_KEY)}")

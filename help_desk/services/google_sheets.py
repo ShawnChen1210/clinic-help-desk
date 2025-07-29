@@ -2,7 +2,7 @@ from help_desk.utils import *
 from clinic_help_desk.settings import *
 import csv
 
-
+#THIS FILE IS FOR ALL OPERATIONS REGARDING GOOGLE SHEET AND ITS API
 def create_new_google_sheet(title = "New Sheet"): #title needs to be filled when function is referenced, New Sheet is default name if no title is given
     drive_service = get_google_drive_service_creds()
     spreadsheet_metadata = {
@@ -130,7 +130,7 @@ def padded_google_sheets(sheet_id, range_name):
     else:
         return [], []
 
-def batch_upload_csv(csv_file_path, spreadsheet_id):
+def batch_upload_csv(csv_file_path, spreadsheet_id): #for uploading csv
     sheets_service = get_google_sheets_service_creds()
 
     with open(csv_file_path, 'r') as file:

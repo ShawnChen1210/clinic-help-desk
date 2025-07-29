@@ -9,7 +9,7 @@
             <p class="text-sm">Created on: {{ sheet_date }}</p>
         </div>
         <div class="p-1">
-            <button onclick="showModal()" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Upload Files</button>
+            <button onclick="showModal('upload-modal')" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Upload Files</button>
             <a href="https://docs.google.com/spreadsheets/d/{{ sheet_id }}" target="_blank"> <button class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Open in Google Sheets</button></a>
         </div>
     </div>
@@ -18,15 +18,15 @@
     <br>
     <!-- the HTML for the spreadsheet -->
     <div class="overflow-auto sticky bottom-0 max-h-[75vh]">
-        <table class="w-full min-w-max table-fixed border-collapse">
+        <table class="w-full min-w-max table-auto border-collapse">
             {% if sheet_data %}
                 <thead>
                     <tr>
                         {% for cell in sheet_header %}
                         {% if cell %}
-                        <th class="border border-gray-300 p-2 font-bold">{{ cell }}</th>
+                        <th class="border border-gray-300 p-2 font-bold min-w-0">{{ cell }}</th>
                         {% else %}
-                        <th class="border border-gray-300 p-2 font-bold">&nbsp;</th>
+                        <th class="border border-gray-300 p-2 font-bold min-w-0">&nbsp;</th>
                         {% endif %}
                         {% endfor %}
                     </tr>
@@ -36,9 +36,9 @@
                     <tr>
                         {% for cell in row %}
                             {% if cell %}
-                            <td class="border border-gray-300 p-2">{{ cell }}</td>
+                            <td class="border border-gray-300 p-2 min-w-0">{{ cell }}</td>
                             {% else %}
-                            <td class="border border-gray-300 p-2">&nbsp;</td>
+                            <td class="border border-gray-300 p-2 min-w-0">&nbsp;</td>
                             {% endif %}
                         {% endfor %}
                     </tr>
@@ -51,11 +51,11 @@
     </div>
 
     <!-- Upload Popup -->
-    <div id="modal" class="fixed inset-0 bg-black/50 hidden items-center justify-center">
+    <div id="upload-modal" class="fixed inset-0 bg-black/50 hidden items-center justify-center">
         <div class="bg-white p-6 rounded-lg max-w-md w-full mx-4">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-xl font-bold">Upload Files (.csv)</h2>
-                <button onclick="hideModal()" class="text-gray-500 hover:text-gray-700">&times;</button>
+                <button onclick="hideModal('upload-modal')" class="text-gray-500 hover:text-gray-700">&times;</button>
             </div>
             <div class="mb-4">
                 <!-- Your HTML content here -->
@@ -69,20 +69,63 @@
                     <button class="border border-gray-400 text-gray-400 rounded-md p-1.5" type="submit" name="upload_file">Upload</button>
                 </form>
             </div>
-            <button onclick="hideModal()" class="bg-gray-500 text-white px-4 py-2 rounded">Close</button>
         </div>
     </div>
 
+    <!-- Post-Upload Popup (Operations to do with the new uploaded csv) -->
+    <div id="post-upload-modal" class="fixed inset-0 bg-black/50 hidden items-center justify-center">
+        <div class="bg-white p-6 rounded-lg max-w-xl w-full mx-4">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold">Join by columns</h2>
+                <button onclick="hideModal('post-upload-modal')" class="text-gray-500 hover:text-gray-700">&times;</button>
+            </div>
+            <div class="mb-4">
+                <h3 class="text-xs text-gray-400">Note: When joining by columns, ideally select a column with all unique entries. if one column has more of the same entries than the other, the rows in the less entries side will be appended to the first entry on the more entries side it matches with (E.G. table A has 3 rows with 'June 15' while table B has one row. said table B row will be appended to the first 'June 15' row in table A)</h3>
+                <div>
+                    <h2 class="text-lg font-bold">Columns in your sheet</h2>
+                    {% if sheet_header %}
+                        <div class="flex">
+                        {% for header in sheet_header %}
+                            <h2>{{ header }}</h2>
+                            <form method="post">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="select_column">
+                                <input type="hidden" name="selected_header" value="{{ header }}">
+                                <input type="hidden" name="header_side" value="left">
+                                <button class="bg-gray-600 text-white rounded-md p-1.5" type="submit">Choose</button>
+                            </form>
+                        {% endfor %}
+                        </div>
+                    {% endif %}
+                    <h2 class="text-lg font-bold">Columns in uploaded CSV</h2>
+                    {% if uploaded_header %}
+                        <div class="flex">
+                        {% for header in uploaded_header %}
+                            <h2>{{ header }}</h2>
+                            <form method="post">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="select_column">
+                                <input type="hidden" name="selected_header" value="{{ header }}">
+                                <input type="hidden" name="header_side" value="right">
+                                <button class="bg-gray-600 text-white rounded-md p-1.5" type="submit">Choose</button>
+                            </form>
+                        {% endfor %}
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
 
     <script>
         //script for opening up popup
-        function showModal() {
-            document.getElementById('modal').classList.remove('hidden');
-            document.getElementById('modal').classList.add('flex');
+        function showModal(modal_id) {
+            document.getElementById(modal_id).classList.remove('hidden');
+            document.getElementById(modal_id).classList.add('flex');
         }
-        function hideModal() {
-            document.getElementById('modal').classList.add('hidden');
-            document.getElementById('modal').classList.remove('flex');
+        function hideModal(modal_id) {
+            document.getElementById(modal_id).classList.add('hidden');
+            document.getElementById(modal_id).classList.remove('flex');
         }
 
         //function for showing selected file name next to upload button
@@ -90,5 +133,12 @@
            const fileNameSpan = document.getElementById('file-name');
            fileNameSpan.textContent = input.files.length > 0 ? input.files[0].name : '';
         }
+        {% if messages %}
+            {% for message in messages %}
+                {% if 'upload_success' in message.message %}
+                    showModal('post-upload-modal')
+                {% endif %}
+            {% endfor %}
+        {% endif %}
     </script>
 {% endblock %}

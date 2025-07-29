@@ -3,27 +3,27 @@
 {% block title %} Members {% endblock %}
 
 {% block content %}
-<table>
+<table class="w-full min-w-max border-collapse">
     <thead>
         <tr>
-            <th>User ID</th>
-            <th>Username</th>
-            <th>First Name</th>
-            <th>Last Name</th>
-            <th>Email</th>
-            <th>Is allowed access?</th>
-            <th>Is Staff?</th>
+            <th class="border border-gray-300 p-2 font-bold min-w-0">User ID</th>
+            <th class="border border-gray-300 p-2 font-bold min-w-0">Username</th>
+            <th class="border border-gray-300 p-2 font-bold min-w-0">First Name</th>
+            <th class="border border-gray-300 p-2 font-bold min-w-0">Last Name</th>
+            <th class="border border-gray-300 p-2 font-bold min-w-0">Email</th>
+            <th class="border border-gray-300 p-2 font-bold min-w-0">Is allowed access?</th>
+            <th class="border border-gray-300 p-2 font-bold min-w-0">Is Staff?</th>
         </tr>
     </thead>
     <tbody>
     {% for user in users %}
         <tr>
-            <td>{{ user.id }}</td>
-            <td>{{ user.username }}</td>
-            <td>{{ user.first_name }}</td>
-            <td>{{ user.last_name }}</td>
-            <td>{{ user.email }}</td>
-            <td>
+            <td class="border border-gray-300 p-2 min-w-0">{{ user.id }}</td>
+            <td class="border border-gray-300 p-2 min-w-0">{{ user.username }}</td>
+            <td class="border border-gray-300 p-2 min-w-0">{{ user.first_name }}</td>
+            <td class="border border-gray-300 p-2 min-w-0">{{ user.last_name }}</td>
+            <td class="border border-gray-300 p-2 min-w-0">{{ user.email }}</td>
+            <td class="border border-gray-300 p-2 min-w-0">
                 <div>
                 {{ user.userprofile.is_verified }}
                     <form method="post">
@@ -34,7 +34,7 @@
                     </form>
                 </div>
             </td>
-            <td>
+            <td class="border border-gray-300 p-2 min-w-0">
                 <div>
                     {{ user.is_staff }}
                     <form method="post">

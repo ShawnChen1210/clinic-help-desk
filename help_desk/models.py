@@ -1,7 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import User, AbstractUser
 
-class UserSheet(models.Model):
+class UserSheet(models.Model): # Stores relationship between users and sheets to see which belong to who
     user = models.ForeignKey(User, on_delete=models.CASCADE) #one user can have many entries in this Model
     sheet_id = models.CharField(max_length=100)
     sheet_name = models.CharField(max_length=100)
@@ -9,4 +9,3 @@ class UserSheet(models.Model):
 
     def __str__(self):
         return self.sheet_id
-# Create your models here.
