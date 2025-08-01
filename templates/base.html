@@ -14,7 +14,7 @@
         <nav class="flex justify-between items-center">
         
             <div class="flex space-x-4">    
-                <a class="p-4" href="{% url 'index' %}">Home</a>
+                <a class="p-4" href="{% url 'home' %}">Home</a>
                 {% if request.user.userprofile.is_verified %}
                 <a class="p-4" href="{% url 'dashboard' %}">Dashboard</a>
                 {% endif %}

@@ -11,8 +11,8 @@ import tempfile
 
 # Create your views here.
 
-def index(request):
-    return render(request, 'index.html')
+def home(request):
+    return render(request, 'home.html')
 
 @login_required(login_url='login_user')
 def dashboard(request):
@@ -150,3 +150,6 @@ def handle_file_upload(uploaded_file):
         if os.path.exists(temp_file_path):
             os.remove(temp_file_path)
         raise ValueError(f"Invalid CSV file: {str(e)}")
+
+def spreadsheet(request):
+    return render(request, 'sheetapp.html')
