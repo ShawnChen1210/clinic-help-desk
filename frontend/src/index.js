@@ -1,6 +1,9 @@
+
+
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import './index.css';
 
 // Optional: Pass initial Django data to React
 const djangoData = window.djangoData || {

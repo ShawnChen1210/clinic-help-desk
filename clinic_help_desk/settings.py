@@ -184,7 +184,7 @@ CORS_ALLOWED_ORIGINS = [
 # REST Framework settings
 REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.AllowAny',  # Change this for production
+        'rest_framework.permissions.IsAuthenticated',  # Change this for production
     ],
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.SessionAuthentication',

@@ -15,15 +15,25 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path, include
-from django.views.static import serve
-import os
+from django.urls import path, include, re_path
+from django.views.generic import TemplateView
 from django.conf import settings
+from django.views.static import serve
+
 urlpatterns = [
+    # 1. Django URLs
     path('admin/', admin.site.urls),
-    path('', include('help_desk.urls')),
-    #urls for registration app
+
     path('registration/', include('django.contrib.auth.urls')),
     path('registration/', include('registration.urls')),
     path('api/', include('api.urls')),
+    path('', include('help_desk.urls')),
+
+    # 2. Rule to serve root-level static files from React's build folder (DO NOT TOUCH UNLESS NECESSARY)
+    re_path(r'^(?P<path>manifest\.json|favicon\.ico|robots\.txt|logo192\.png|logo512\.png)$',
+            serve, {'document_root': settings.BASE_DIR / 'frontend/build'}),
+
+    # 3. Catch-all rule to serve the React app's index.html (ALSO DO NOT TOUCH UNLESS NECESSARY)
+    # This must be the VERY LAST URL pattern
+    re_path(r'^.*$', TemplateView.as_view(template_name='index.html')),
 ]

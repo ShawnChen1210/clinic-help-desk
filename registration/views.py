@@ -62,7 +62,7 @@ def activate(request, uidb64, token):
     else:
         messages.error(request, 'Activation link is invalid!')
 
-    return redirect('index')
+    return redirect('home')
 
 def register_user(request):
     if request.method == 'POST':
@@ -75,7 +75,7 @@ def register_user(request):
             activate_email(request, user, form.cleaned_data['email'])
 
             login(request, user)
-            return redirect('index')
+            return redirect('home')
     else:
         form = RegistrationForm()
     return render(request, 'register.html', {"form": RegistrationForm})
@@ -107,4 +107,4 @@ def members(request):
         users = User.objects.select_related('userprofile').exclude(pk=request.user.pk).all()
         return render(request, 'members.html', {"users": users})
     else:
-        return redirect('index')
+        return redirect('home')
