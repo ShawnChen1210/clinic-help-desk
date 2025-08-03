@@ -3,7 +3,7 @@ import { fetchUser } from '../services/auth';
 import { useParams } from 'react-router-dom';
 import { useReactTable, getCoreRowModel, flexRender } from '@tanstack/react-table'; // flexRender is correctly imported
 import axios from "axios";
-
+import LinkButton from "../components/atoms/LinkButton";
 
 export default function SpreadsheetComponent() {
     const [userData, setUserData] = useState(null);
@@ -108,7 +108,7 @@ export default function SpreadsheetComponent() {
                     <h4 className="text-sm font-medium text-gray-500 mt-1">SheetName: {spreadsheetTitle}</h4>
                 </div>
                 <div className="flex space-x-2 mt-4 sm:mt-0">
-                    {/* Future UI buttons can go here */}
+                    <LinkButton text="Upload CSV" link={`/spreadsheet/${sheet_id}/upload`} />
                 </div>
             </div>
 
