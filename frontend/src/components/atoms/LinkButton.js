@@ -1,7 +1,7 @@
 import React from "react";
 import { Link } from 'react-router-dom';
 
-function LinkButton({ text, link }) {
+export default function LinkButton({ text, link }) {
     return (
         <div className="flex space-x-2 mt-4 sm:mt-0">
             <Link to={link}>
@@ -12,5 +12,3 @@ function LinkButton({ text, link }) {
         </div>
     );
 }
-
-export default LinkButton;

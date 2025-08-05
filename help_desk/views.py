@@ -8,6 +8,7 @@ from .models import *
 from .services.google_sheets import *
 import pandas as pd
 import tempfile
+from django.middleware.csrf import get_token
 
 # Create your views here.
 
@@ -151,5 +152,6 @@ def handle_file_upload(uploaded_file):
             os.remove(temp_file_path)
         raise ValueError(f"Invalid CSV file: {str(e)}")
 
-def spreadsheet(request):
-    return render(request, 'sheetapp.html')
+def spreadsheet(request, sheet_id):
+    csrf_token = get_token(request)
+    return render(request, 'index.html', context={'csrf_token': csrf_token})

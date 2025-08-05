@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: '/',  // Same domain as Django
+  baseURL: 'http://localhost:8000', // Same domain as Django
   withCredentials: true,  // Send cookies (sessionid, csrftoken)
 });
 

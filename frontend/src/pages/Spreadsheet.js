@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchUser } from '../services/auth';
 import { useParams } from 'react-router-dom';
-import { useReactTable, getCoreRowModel, flexRender } from '@tanstack/react-table'; // flexRender is correctly imported
+import { useReactTable, getCoreRowModel, flexRender } from '@tanstack/react-table';
 import axios from "axios";
 import LinkButton from "../components/atoms/LinkButton";
 
@@ -81,9 +81,13 @@ export default function SpreadsheetComponent() {
 
 
 
-    // Show loading state
+    // Show loading state (spinner)
     if (loading) {
-        return <div>Loading...</div>;
+        return (
+            <div className="flex items-center justify-center min-h-screen bg-gray-100">
+                <div className="w-16 h-16 border-4 border-dashed rounded-full animate-spin border-blue-500"></div>
+            </div>
+        );
     }
 
     // Show error state
