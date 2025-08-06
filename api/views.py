@@ -118,9 +118,7 @@ class SpreadsheetViewSet(viewsets.ViewSet):
                     temp_file.write(chunk)
                 temp_file_path = temp_file.name
 
-            user_sheet = UserSheet.objects.get(sheet_id=pk, user=request.user)
-            sheet_name = user_sheet.sheet_name
-            sheet_data, sheet_headers = padded_google_sheets(pk, sheet_name)
+            sheet_data, sheet_headers = padded_google_sheets(pk, 'A1:Z5')
 
             if not sheet_data and not sheet_headers:
                 with open(temp_file_path, 'r', encoding='utf-8') as f:
@@ -204,7 +202,7 @@ class SpreadsheetViewSet(viewsets.ViewSet):
 
         try:
             # Read the merged data
-            merged_df = pd.read_csv(merged_data_path, encoding='latin1')
+            merged_df = pd.read_csv(merged_data_path, encoding='latin1').fillna('')
 
             # Sheet1 is the default name of all google sheets, the files created via api also has this name
             write_df_to_sheets(pk, 'Sheet1', merged_df)

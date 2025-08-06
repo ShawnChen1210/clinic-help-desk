@@ -203,7 +203,7 @@ def write_df_to_sheets (spreadsheet_id, range, df):
 
         result = sheets_api.values().update(
             spreadsheetId=spreadsheet_id,
-            range=f"{range}!A1",  # Specifies the top-left cell to start writing from
+            range=range,  # Specifies the top-left cell to start writing from
             valueInputOption="USER_ENTERED",  # This makes Google Sheets interpret data like dates/numbers correctly
             body=body
         ).execute()
