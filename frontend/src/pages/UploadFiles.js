@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchUser } from '../services/auth';
-import { useParams } from 'react-router-dom';
+import {redirect, useParams, useNavigate } from 'react-router-dom';
 import axios from "axios";
+import api from "../utils/axiosConfig";
 import MultiStepForm from "../components/organisms/MultiStepForm";
 
 export default function UploadFiles() {
     const { sheet_id } = useParams()
+    const navigate = useNavigate()
     const [loading, setLoading] = useState(true)
     const [allowed, setAllowed] = useState(false)
     const [error, setError] = useState('')
@@ -28,6 +30,16 @@ export default function UploadFiles() {
         checkAllowed();
     }, [sheet_id]);
 
+    const handleClose = async () => {
+        try {
+            await api.post(`/api/spreadsheets/${sheet_id}/delete_session_storage/`);
+        } catch (err) {
+            console.error('Close Failed', err);
+            setError('Closeed');
+        } finally {
+            navigate(`/spreadsheet/${sheet_id}/`)
+        }
+    }
 
     if (loading) {
         return (
@@ -39,6 +51,13 @@ export default function UploadFiles() {
 
     return (
         <div className="bg-gray-100 min-h-screen p-8 sm:p-8 font-sans">
+            <button
+                onClick={handleClose}
+                className="text-yellow-800 hover:text-yellow-900 font-sans font-bold text-2xl leading-none"
+                aria-label="Close"
+            >
+                &times;
+            </button>
             <MultiStepForm/>
         </div>
     )

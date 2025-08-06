@@ -156,20 +156,60 @@ def batch_upload_csv(csv_file_path, spreadsheet_id): #for uploading csv
     ).execute()
     return True
 
-def write_google_sheets (spreadsheet_id, range, values):
+
+def write_google_sheets(spreadsheet_id, sheet_name, values):
     sheets_service = get_google_sheets_service_creds()
     try:
+        sheets_service.spreadsheets().values().clear(
+            spreadsheetId=spreadsheet_id,
+            range=sheet_name
+        ).execute()
+
         body = {
-            "values": [[values]]  # always a list of lists
+            "values": values
         }
+
         result = sheets_service.spreadsheets().values().update(
             spreadsheetId=spreadsheet_id,
-            range=range,
-            valueInputOption="RAW",
+            range=f"{sheet_name}!A1",
+            valueInputOption="USER_ENTERED",  # Better for parsing dates/numbers
             body=body
         ).execute()
         return True
 
     except Exception as e:
-        print(f"Error writing google sheets: {e}")
+        print(f"Error writing to Google Sheets: {e}")
         return False
+
+def write_df_to_sheets (spreadsheet_id, range, df):
+    try:
+        sheets_service = get_google_sheets_service_creds()
+        sheets_api = sheets_service.spreadsheets()
+
+        #  Clear the sheet first to remove any old data.
+        #  The range should be just the sheet name to clear everything. (Sheet1 for MOST cases)
+        sheets_api.values().clear(
+            spreadsheetId=spreadsheet_id,
+            range=range
+        ).execute()
+        print(f"Sheet cleared successfully.")
+
+        #  Converts the pandas df to a list of lists acceptable by google sheet's api
+        sheet_to_write = [df.columns.tolist()] + df.to_numpy().tolist()
+
+        body = {
+            "values": sheet_to_write
+        }
+
+        result = sheets_api.values().update(
+            spreadsheetId=spreadsheet_id,
+            range=f"{range}!A1",  # Specifies the top-left cell to start writing from
+            valueInputOption="USER_ENTERED",  # This makes Google Sheets interpret data like dates/numbers correctly
+            body=body
+        ).execute()
+
+        print("cells updated successfully.")
+        return True
+
+    except Exception as e:
+        print(f"Error writing google sheets: {e}")

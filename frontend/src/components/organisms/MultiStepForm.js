@@ -2,10 +2,14 @@ import React, { useState } from 'react';
 import UploadForm from '../molecules/UploadForm'
 import TanstackTable from "../molecules/TanstackTable";
 import JoinTableForm from "../molecules/JoinTableForm";
+import ConfirmMergeForm from "../molecules/ConfirmMergeForm";
 import {getCoreRowModel, useReactTable} from "@tanstack/react-table";
 import axios from "axios";
+import api from "../../utils/axiosConfig";
 import { useListTable } from "../../hooks/useListTable";
 import { useDictTable } from "../../hooks/useDictTable";
+import { useNavigate, useParams } from "react-router-dom";
+
 
 // --- Step Components ---
 // Each step is its own component. It receives functions to go next or back.
@@ -39,15 +43,14 @@ function StepTwo({onNext, onBack, tableL, tableR, onMergeSuccess}) {
     );
 }
 
-function StepThree({onBack, table}) {
+function StepThree({onBack, table, finalMergeSuccess}) {
     return (
-        <div className="flex justify-center items-center">
-            <div>
-                <h1 className="text-2xl font-bold text-gray-800 mb-2">Step 3: Verify data is correct</h1>
-                <p className="text-sm text-gray-600 mb-4">
-                </p>
-                <TanstackTable table={table}/>
-            </div>
+        <div className="w-full max-w-7xl mx-auto">
+            <h1 className="text-2xl font-bold text-gray-800 mb-2">Step 3: Verify data is correct</h1>
+            <p className="text-sm text-gray-600 mb-4">
+                This is a preview of the merged data. If it looks correct, press "Confirm & Save".
+            </p>
+            <ConfirmMergeForm table={table} onMergeSuccess={finalMergeSuccess}/>
         </div>
     );
 }
@@ -59,6 +62,7 @@ function StepThree({onBack, table}) {
 export default function MultiStepForm() {
     // STATE: A state variable to hold the current step number.
     const [currentStep, setCurrentStep] = useState(1);
+    const {sheet_id} = useParams()
 
     //variables for storing headers and body for the second step (joining tables)
     const [columns, setColumns] = useState([]);
@@ -70,14 +74,21 @@ export default function MultiStepForm() {
     const [mergedColumns, setMergedColumns] = useState([])
     const [mergedData, setMergedData] = useState([])
 
-
+    const navigate = useNavigate()
   // NAVIGATION: Functions to update the step state.
   const handleNext = () => setCurrentStep(prev => prev + 1);
   const handleBack = () => setCurrentStep(prev => prev - 1);
 
   // vv----BELOW IS CODE FOR HANDLING RETURNED DATA FROM A SUCCESSFUL CSV UPLOAD----vv
   const handleUploadSuccess = (apiData) => {
-        // Transform headers
+
+        if (apiData.status === 'first_upload_complete') {
+            alert('First upload successful! Your sheet has been populated.');
+            // Redirect the user back to the main spreadsheet view
+            navigate(`/spreadsheet/${sheet_id}/`);
+            return;
+        }
+      // Transform headers
         const transformedColumns = apiData.headers.map(header => ({
             header: header,
             accessorKey: header
@@ -89,6 +100,7 @@ export default function MultiStepForm() {
 
         setSheetColumns(apiData.sheet_headers);
         setSheetData(apiData.sheet_data);
+
         // Move to the next step
         setCurrentStep(2);
   };
@@ -104,6 +116,7 @@ export default function MultiStepForm() {
       rawColumns: sheetColumns,
       rawData: sheetData
   })
+
   // ^^----ABOVE IS CODE FOR HANDLING RETURNED DATA FROM A SUCCESSFUL CSV UPLOAD----^^
 
     // vv----BELOW IS CODE FOR HANDLING SUCCESSFUL TABLE MERGE----vv
@@ -118,6 +131,10 @@ export default function MultiStepForm() {
         rawData: mergedData
     })
 
+    const finalMergeSuccess = () => {
+      navigate(`/spreadsheet/${sheet_id}/`)
+    }
+
     // CONDITIONAL RENDERING: A function or switch case to render the correct step.
   const renderStep = () => {
     switch (currentStep) {
@@ -126,9 +143,9 @@ export default function MultiStepForm() {
       case 2:
         return <StepTwo onNext={handleNext} onBack={handleBack} tableL={tableL} tableR={tableR} onMergeSuccess={handleMergeSuccess}/>;
       case 3:
-        return <StepThree onBack={handleBack} table={mergedTable} />;
+        return <StepThree onBack={handleBack} table={mergedTable} finalMergeSuccess={finalMergeSuccess}/>;
       default:
-        return <StepOne onNext={handleNext} />;
+        return <StepOne onNext={handleNext}/>;
     }
   };
 

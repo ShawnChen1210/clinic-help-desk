@@ -1,11 +1,12 @@
 import React, {useState} from "react";
-import {useParams} from "react-router-dom";
+import {useParams, useNavigate} from "react-router-dom";
 import api from '../../utils/axiosConfig'
 
 export default function UploadForm({onUploadSuccess}) {
     const [selectedFile, setSelectedFile] = useState(null);
     const [status, setStatus] = useState('Please Select a File')
     const { sheet_id } = useParams()
+    const navigate = useNavigate()
 
     const handleFileChange = (event) => {
         setSelectedFile(event.target.files[0]);
@@ -13,36 +14,42 @@ export default function UploadForm({onUploadSuccess}) {
     };
 
     const handleUpload = async (event) => {
-        event.preventDefault(); //stops form reloading page
+        event.preventDefault();
 
         if (!selectedFile) {
             setStatus('No file selected!');
             return;
         }
+        setStatus('Uploading...');
 
-        setStatus('Uploading...')
+        const formData = new FormData();
+        formData.append('file', selectedFile);
 
-        const formData = new FormData()
-
-        formData.append('file', selectedFile)
-         try {
-          //Send the FormData object to your Django endpoint
-              const response = await api.post(
+        try {
+            // Make the single API call
+            const response = await api.post(
                 `/api/spreadsheets/${sheet_id}/upload_csv/`,
                 formData,
-                {
-                  headers: {
-                    'Content-Type': 'multipart/form-data',
-                  },
-                }
-              );
+                { headers: { 'Content-Type': 'multipart/form-data' } }
+            );
 
-              setStatus('Upload successful!');
-              onUploadSuccess(response.data); // Notify the parent component
+            // Pass the entire data object up to the parent component to handle.
+            onUploadSuccess(response.data);
 
         } catch (error) {
-          console.error('Error uploading file:', error);
-          setStatus('Upload failed. Please try again.');
+            console.error('Error uploading file:', error);
+            setStatus(error.response?.data?.error || 'Upload failed. Please try again.');
+        }
+    };
+
+    const firstUpload = async () => {
+        try {
+            const request = await api.post(`api/spreadsheets/${sheet_id}/first_upload_csv/`)
+            console.log((request.data))
+        } catch (err) {
+            console.log((err.request.data.error))
+        } finally {
+            navigate(`spreadsheet/${sheet_id}/`)
         }
     }
 

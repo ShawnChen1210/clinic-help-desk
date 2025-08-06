@@ -31,7 +31,7 @@ export default function JoinTableForm({tableL, tableR, onJoinSuccess}) {
             onJoinSuccess(response.data)
             alert('Merge successful!');
         } catch (error) {
-            console.error('Merge failed:', error);
+            console.error('Merge failed:', error.response.data.error);
             alert('Merge failed.');
         }
     }

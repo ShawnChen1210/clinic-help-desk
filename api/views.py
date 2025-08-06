@@ -69,7 +69,7 @@ class SpreadsheetViewSet(viewsets.ViewSet):
         try:
             # Fetch fresh data from Google Sheets
             print(f"Fetching data from Google Sheets for ID: {sheet_id}")
-            sheet_data, sheet_header = padded_google_sheets(sheet_id, 'A1:Z50')
+            sheet_data, sheet_header = padded_google_sheets(sheet_id, 'Sheet1')
             print(f"Successfully fetched {len(sheet_data)} rows of data")
 
             return Response({
@@ -107,39 +107,43 @@ class SpreadsheetViewSet(viewsets.ViewSet):
 
     @action(detail=True, methods=['POST'])
     def upload_csv(self, request, pk=None):
-
         uploaded_file = request.FILES.get('file')
         if not uploaded_file:
-            return Response(
-                {'error': 'no file provided'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        # Create temp file
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as temp_file:
-            for chunk in uploaded_file.chunks():
-                temp_file.write(chunk)
-            temp_file_path = temp_file.name
+            return Response({'error': 'no file provided'}, status=status.HTTP_400_BAD_REQUEST)
 
+        temp_file_path = ''
         try:
-            df = pd.read_csv(temp_file_path).fillna('')
-            headers = df.columns.tolist() # Just headers
-            body = df.head(2).to_dict(orient='records') # first 2 rows of the csv file
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as temp_file:
+                for chunk in uploaded_file.chunks():
+                    temp_file.write(chunk)
+                temp_file_path = temp_file.name
 
-            sheet_data, sheet_headers = padded_google_sheets(pk, 'A1:Z3') #returns the headers and 2 extra rows of data from google sheets. This will be processed in the frontend
+            user_sheet = UserSheet.objects.get(sheet_id=pk, user=request.user)
+            sheet_name = user_sheet.sheet_name
+            sheet_data, sheet_headers = padded_google_sheets(pk, sheet_name)
 
-            request.session['temp_file_path'] = temp_file_path #saves temp file path to session
-            return Response({
-                'success': True,
-                'headers': headers,
-                'body': body,
-                'sheet_data': sheet_data,
-                'sheet_headers': sheet_headers,
-            }, status=status.HTTP_200_OK)
+            if not sheet_data and not sheet_headers:
+                with open(temp_file_path, 'r', encoding='utf-8') as f:
+                    reader = csv.reader(f)
+                    data_to_upload = list(reader)
+
+                    write_google_sheets(pk, 'Sheet1', data_to_upload)
+                return Response({'status': 'first_upload_complete'}, status=status.HTTP_200_OK)
+            else:
+                request.session['temp_file_path'] = temp_file_path
+                df = pd.read_csv(temp_file_path).fillna('')
+
+                return Response({
+                    'success': True,
+                    'headers': df.columns.tolist(),
+                    'body': df.head(5).to_dict(orient='records'),
+                    'sheet_data': sheet_data,
+                    'sheet_headers': sheet_headers,
+                }, status=status.HTTP_200_OK)
 
         except Exception as e:
-            if os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
-            return Response({'error': f"Invalid CSV file: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
     @action(detail=True, methods=['POST'])
     def merge_sheets(self, request, pk=None):
@@ -154,6 +158,8 @@ class SpreadsheetViewSet(viewsets.ViewSet):
             left_spreadsheet, left_spreadsheet_headers = padded_google_sheets(sheet_id, sheet_name) #returns the entire table
             temp_file_path = request.session.get('temp_file_path') #uploaded csv file path
 
+
+
             left_df = pd.DataFrame(left_spreadsheet, columns=left_spreadsheet_headers)
             right_df = pd.read_csv(temp_file_path)
 
@@ -164,11 +170,19 @@ class SpreadsheetViewSet(viewsets.ViewSet):
             merged_headers = merged_df.columns.tolist()
             merged_data = merged_df.to_dict(orient='records')
 
-            if os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
-                # Remove the path from the session
-            if 'temp_file_path' in request.session:
-                del request.session['temp_file_path']
+            #stores the merged df in a temporary csv until user confirms
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='w+', newline='') as temp_file:
+                merged_df.to_csv(temp_file, index=False)
+                merged_data_path = temp_file.name  # Get the path to the temp file
+
+            # stores path to session
+            request.session['merged_data_path'] = merged_data_path
+
+            if not left_spreadsheet and not left_spreadsheet_headers:
+                return Response(
+                    {'status': 'First Upload'},
+                    status=status.HTTP_200_OK
+                )
 
             return Response({
                 'success': True,
@@ -178,6 +192,67 @@ class SpreadsheetViewSet(viewsets.ViewSet):
         except Exception as e:
             return Response(
                 {'error': f"Failed to merge sheets: {str(e)}"},
+            )
+
+    @action(detail=True, methods=['POST'])
+    def confirm_merge_sheets(self, request, pk=None):
+        merged_data_path = request.session.get('merged_data_path')
+        temp_file_path = request.session.get('temp_file_path')  # Get original upload path for cleanup
+
+        if not merged_data_path or not os.path.exists(merged_data_path):
+            return Response({'error': 'No merge data found or session expired.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # Read the merged data
+            merged_df = pd.read_csv(merged_data_path, encoding='latin1')
+
+            # Sheet1 is the default name of all google sheets, the files created via api also has this name
+            write_df_to_sheets(pk, 'Sheet1', merged_df)
+
+            return Response({
+                'success': True,
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response(
+                {'error': f"Failed to merge sheets: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        finally:
+            # TEMP FILE CLEANUP
+            print("Cleaning up temporary files and session data...")
+            if merged_data_path and os.path.exists(merged_data_path):
+                os.remove(merged_data_path)
+            if temp_file_path and os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+
+            if 'merged_data_path' in request.session:
+                del request.session['merged_data_path']
+            if 'temp_file_path' in request.session:
+                del request.session['temp_file_path']
+
+    @action(detail=True, methods=['POST'])
+    def delete_session_storage(self, request, pk=None):
+        try:
+            merged_data_path = request.session.get('merged_data_path')
+            temp_file_path = request.session.get('temp_file_path')
+
+            if merged_data_path and os.path.exists(merged_data_path):
+                os.remove(merged_data_path)
+            if temp_file_path and os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+
+            if 'merged_data_path' in request.session:
+                del request.session['merged_data_path']
+            if 'temp_file_path' in request.session:
+                del request.session['temp_file_path']
+
+            return Response({
+                'success': True,
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response(
+                {'error': f"Failed to delete temporary files: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
 
