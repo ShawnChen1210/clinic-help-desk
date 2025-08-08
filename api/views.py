@@ -253,4 +253,74 @@ class SpreadsheetViewSet(viewsets.ViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+class AnalyticsViewSet(viewsets.ViewSet):
+    authentication_classes = [SessionAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    @action(detail=True, methods=['GET'])
+    def income_summary(self, request, pk=None):
+        try:
+            sheet_data, sheet_headers = padded_google_sheets(pk, 'Sheet1')
+            date_column = request.data.get('date_column')
+            income_columns = request.data.get('income_columns')
+            if not sheet_data:
+                return Response({
+                    'weekly': [],
+                    'monthly': [],
+                    'yearly': [],
+                })
+
+            df = pd.DataFrame(sheet_data, columns=sheet_headers)
+            actual_columns = set(df.columns)
+
+            # Check if the provided column names are valid
+            if date_column not in actual_columns:
+                return Response({'error': f"The date column '{date_column}' was not found in the sheet."}, status=400)
+
+            for col in income_columns:
+                if col not in actual_columns:
+                    return Response({'error': f"The income column '{col}' was not found in the sheet."}, status=400)
+
+            #data preparation
+            try:
+                df[date_column] = pd.to_datetime(df[date_column])
+                for income_column in income_columns:
+                    df[income_column] = pd.to_numeric(df[income_column])
+            except Exception as e:
+                return Response(
+                    {'error': f"Failed to convert columns. Ensure data is in the correct format. Details: {e}"},
+                    status=400)
+            df.set_index(date_column, inplace=True)
+            income_df = df[income_columns]
+
+            #Resample and sum each income column for each time period
+            weekly_subtotals = income_df.resample('W').sum()
+            monthly_subtotals = income_df.resample('M').sum()
+            yearly_subtotals = income_df.resample('Y').sum()
+
+            #Sum the columns together to get a single total for each time period
+            #axis=1 tells pandas to sum horizontally (across the columns)
+            weekly_totals = weekly_subtotals.sum(axis=1).rename('Total Income')
+            monthly_totals = monthly_subtotals.sum(axis=1).rename('Total Income')
+            yearly_totals = yearly_subtotals.sum(axis=1).rename('Total Income')
+
+            #formats total number to format for react charts
+            def format_report(series, date_format):
+                report_df = series.reset_index()
+                report_df[date_column] = report_df[date_column].dt.strftime(date_format)
+                return report_df.to_dict(orient='records')
+
+            return Response({
+                'weeklyReport': format_report(weekly_totals, '%Y-%m-%d'),
+                'monthlyReport': format_report(monthly_totals, '%Y-%m'),
+                'yearlyReport': format_report(yearly_totals, '%Y'),
+            })
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+
 

@@ -6,6 +6,9 @@ from .views import *
 
 router = DefaultRouter()
 router.register(r'spreadsheets', SpreadsheetViewSet, basename='spreadsheet') #auto registers url in the form of api/spreadsheets/(insert pk)
+
+analytics_router = DefaultRouter()
+analytics_router.register(r'analytics', AnalyticsViewSet, basename='analytics') #api/analytics/(insert pk)
 urlpatterns = [
     path('csrf/', get_csrf, name='get_csrf'),
     path('user/', user, name='user'),
