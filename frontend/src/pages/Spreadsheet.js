@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchUser } from '../services/auth';
 import { useParams } from 'react-router-dom';
-import { useReactTable, getCoreRowModel, flexRender } from '@tanstack/react-table';
 import axios from "axios";
 import LinkButton from "../components/atoms/LinkButton";
+import { useListTable } from "../hooks/useListTable";
+import TanstackTable from "../components/atoms/TanstackTable";
 
 export default function SpreadsheetComponent() {
     const [userData, setUserData] = useState(null);
@@ -12,7 +13,8 @@ export default function SpreadsheetComponent() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
-    // Fetch the user's data first. This runs once on mount.
+
+    // Fetch the user's data first and sets the current sheet id in the context. This runs once on mount.
     useEffect(() => {
         const fetchInitialUser = async () => {
             try {
@@ -61,24 +63,11 @@ export default function SpreadsheetComponent() {
 
     }, [userData, sheet_id]);
 
-    // Parse the header and data. Use the optional chaining operator (?)
-    // to prevent errors if sheetData is null during initial renders.
-    const columns = useMemo(() => {
-        return sheetData?.sheet_header?.map((header, index) => ({
-            header: header,
-            accessorKey: String(index),
-        })) || [];
-    }, [sheetData]);
-
-    const data = useMemo(() => sheetData?.sheet_data || [], [sheetData]);
-
-    const table = useReactTable({
-        data,
-        columns,
-        getCoreRowModel: getCoreRowModel(),
+    // Constructs the Tanstack table, Provide an empty array `[]` as a fallback if `sheetData` is null.
+    const table = useListTable({
+        rawColumns: sheetData?.sheet_header ?? [],
+        rawData: sheetData?.sheet_data ?? [],
     });
-
-
 
 
     // Show loading state (spinner)
@@ -103,7 +92,7 @@ export default function SpreadsheetComponent() {
     const spreadsheetTitle = sheetData.sheet_name;
 
     return (
-        <div className="bg-gray-100 min-h-screen p-4 sm:p-8 font-sans">
+        <div>
 
             {/* The top div (header bar) you requested */}
             <div className="flex flex-wrap justify-between items-center bg-white p-4 sm:p-6 rounded-lg shadow-md mb-8">
@@ -113,42 +102,11 @@ export default function SpreadsheetComponent() {
                 </div>
                 <div className="flex space-x-2 mt-4 sm:mt-0">
                     <LinkButton text="Upload CSV" link={`/spreadsheet/${sheet_id}/upload`} />
+                    <LinkButton text="Open In Google Sheets" link={`https://docs.google.com/spreadsheets/d/${sheet_id}`} newTab={true}/>
                 </div>
             </div>
 
-            {/* A container for the table to handle overflow and styling */}
-            <div className="overflow-x-auto bg-white rounded-lg shadow-md">
-                <table className="w-full">
-                    <thead>
-                    {table.getHeaderGroups().map(headerGroup => (
-                        <tr key={headerGroup.id}>
-                            {headerGroup.headers.map(header => (
-                                <th
-                                    key={header.id}
-                                    className="p-3 text-left text-sm font-semibold text-gray-700 bg-gray-50 border border-gray-300"
-                                >
-                                    {flexRender(header.column.columnDef.header, header.getContext())}
-                                </th>
-                            ))}
-                        </tr>
-                    ))}
-                    </thead>
-                    <tbody>
-                    {table.getRowModel().rows.map(row => (
-                        <tr key={row.id} className="hover:bg-gray-50 transition-colors">
-                            {row.getVisibleCells().map(cell => (
-                                <td
-                                    key={cell.id}
-                                    className="p-3 border border-gray-300"
-                                >
-                                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                                </td>
-                            ))}
-                        </tr>
-                    ))}
-                    </tbody>
-                </table>
-            </div>
+            <TanstackTable table={table}/>
         </div>
     );
 }

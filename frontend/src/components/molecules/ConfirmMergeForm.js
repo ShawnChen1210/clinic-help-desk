@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import {useParams} from "react-router-dom";
 import api from '../../utils/axiosConfig'; // FIX 1: Import your configured api instance
-import TanstackTable from "./TanstackTable";
+import TanstackTable from "../atoms/TanstackTable";
 
 export default function ConfirmMergeForm({ table, onMergeSuccess }) {
     const { sheet_id } = useParams();

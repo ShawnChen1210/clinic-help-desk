@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import UploadForm from '../molecules/UploadForm'
-import TanstackTable from "../molecules/TanstackTable";
+import TanstackTable from "../atoms/TanstackTable";
 import JoinTableForm from "../molecules/JoinTableForm";
 import ConfirmMergeForm from "../molecules/ConfirmMergeForm";
 import {getCoreRowModel, useReactTable} from "@tanstack/react-table";

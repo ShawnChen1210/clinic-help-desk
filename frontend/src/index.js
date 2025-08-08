@@ -4,7 +4,6 @@ import App from './App';
 import './index.css';
 import api from './utils/axiosConfig';
 
-
 const initializeApp = async () => {
   try {
     const response = await api.get('/api/csrf/');
@@ -31,10 +30,10 @@ const initializeApp = async () => {
 
   root.render(
     <React.StrictMode>
-      <App
-        initialUser={djangoData.user}
-        isAuthenticated={djangoData.isAuthenticated}
-      />
+        <App
+          initialUser={djangoData.user}
+          isAuthenticated={djangoData.isAuthenticated}
+        />
     </React.StrictMode>
   );
 };
