@@ -14,7 +14,9 @@ export default function Navbar() {
   return (
       <div className="sticky top-0 h-screen w-48 bg-gray-800 text-white flex flex-col">
           <div className="p-4 border-b border-gray-700 text-2xl font-bold">
-              Clinic Help Desk
+              <NavLink to={'/'}>
+                  Clinic Help Desk
+              </NavLink>
           </div>
           <nav className="flex-grow p-4">
               <NavLink to={`/spreadsheet/${sheet_id}`} style={navLinkStyles}

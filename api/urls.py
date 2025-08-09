@@ -13,4 +13,5 @@ urlpatterns = [
     path('csrf/', get_csrf, name='get_csrf'),
     path('user/', user, name='user'),
     path('', include(router.urls)),
+    path('', include(analytics_router.urls)),
 ]

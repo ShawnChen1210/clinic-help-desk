@@ -1,11 +1,14 @@
 from django.contrib.auth.decorators import login_required
+from django.db.models.functions import Trunc
 from django.shortcuts import render
 from rest_framework import viewsets, status
 from rest_framework.decorators import api_view, action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.authentication import SessionAuthentication
-from api.serializers import UserSerializer
+from urllib3 import request
+
+from api.serializers import *
 from help_desk.models import *
 from .services.google_sheets import *
 import pandas as pd
@@ -254,10 +257,58 @@ class SpreadsheetViewSet(viewsets.ViewSet):
             )
 
 class AnalyticsViewSet(viewsets.ViewSet):
+    column_pref_queryset = SheetColumnPreference.objects.all()
     authentication_classes = [SessionAuthentication]
     permission_classes = [IsAuthenticated]
 
-    @action(detail=True, methods=['GET'])
+    # DEFAULT GET FUNCTION FOR GETTING USER PREFERENCES
+    def retrieve(self, request, pk=None):
+        sheet_id = pk
+        user = request.user
+
+        try:
+            preference = SheetColumnPreference.objects.get(user=user, sheet_id=sheet_id)
+            serializer = SheetColumnPreferenceSerializer(preference)
+            return Response(serializer.data)
+
+        except SheetColumnPreference.DoesNotExist:
+            # 4. If no preference is found, return a 404 error
+            return Response(
+                {'error': 'No preferences found for this sheet.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+    # DEFAULT POST REQUEST FOR SETTING USER PREFERENCES
+    def create(self, request, pk=None):
+        sheet_id = pk
+        user = request.user
+        date_column = request.data.get('date_column')
+        income_columns = request.data.get('income_columns')
+
+        if not date_column or not income_columns:
+            return Response(
+                {'error': 'Both date_column and income_columns must be provided.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            # This is the core logic. It finds a preference matching the user and sheet_id,
+            # or creates a new one if it doesn't exist.
+            preference, created = SheetColumnPreference.objects.update_or_create(
+                user=user,
+                sheet_id=sheet_id,
+                defaults={
+                    'date_column': date_column,
+                    'income_columns': income_columns,
+                }
+            )
+
+            status_text = "created" if created else "updated"
+            return Response({'status': f'Preference {status_text} successfully'}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['POST'])
     def income_summary(self, request, pk=None):
         try:
             sheet_data, sheet_headers = padded_google_sheets(pk, 'Sheet1')
@@ -315,6 +366,20 @@ class AnalyticsViewSet(viewsets.ViewSet):
                 'monthlyReport': format_report(monthly_totals, '%Y-%m'),
                 'yearlyReport': format_report(yearly_totals, '%Y'),
             })
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=True, methods=['GET'])
+    def get_sheet_headers(self, request, pk=None):
+        try:
+            sheet_data, sheet_headers = padded_google_sheets(pk, 'A1:Z2')
+            return Response(
+                {'columns': sheet_headers},
+                status=status.HTTP_200_OK
+            )
         except Exception as e:
             return Response(
                 {'error': str(e)},
