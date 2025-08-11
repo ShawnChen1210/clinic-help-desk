@@ -20,20 +20,20 @@ export default function UploadForm({onUploadSuccess}) {
             setStatus('No file selected!');
             return;
         }
-        setStatus('Uploading...');
+        setStatus('Uploading and processing...');
 
         const formData = new FormData();
         formData.append('file', selectedFile);
 
         try {
-            // Make the single API call
+            // Single API call that handles both upload and auto-detection
             const response = await api.post(
                 `/api/spreadsheets/${sheet_id}/upload_csv/`,
                 formData,
                 { headers: { 'Content-Type': 'multipart/form-data' } }
             );
 
-            // Pass the entire data object up to the parent component to handle.
+            setStatus('Upload successful! Processing merge...');
             onUploadSuccess(response.data);
 
         } catch (error) {
@@ -42,25 +42,21 @@ export default function UploadForm({onUploadSuccess}) {
         }
     };
 
-    const firstUpload = async () => {
-        try {
-            const request = await api.post(`api/spreadsheets/${sheet_id}/first_upload_csv/`)
-            console.log((request.data))
-        } catch (err) {
-            console.log((err.request.data.error))
-        } finally {
-            navigate(`spreadsheet/${sheet_id}/`)
-        }
-    }
-
     return (
         <form onSubmit={handleUpload} className="p-8 bg-white max-w-md rounded-lg shadow-md">
             <h2 className="text-xl font-bold mb-4">Upload CSV File</h2>
 
+            <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <p className="text-sm text-yellow-800">
+                    <strong>Required:</strong> Your CSV must contain a column with values in format #####-P## or #####-C##
+                    (e.g., "17775-P01", "12447-C02")
+                </p>
+            </div>
+
             <input
                 type="file"
                 onChange={handleFileChange}
-                accept=".csv" // Restrict to only CSV files
+                accept=".csv"
                 className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
             />
 
@@ -70,7 +66,7 @@ export default function UploadForm({onUploadSuccess}) {
                     className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg transition-colors disabled:bg-gray-400"
                     disabled={!selectedFile}
                 >
-                    Upload
+                    Upload & Auto-Merge
                 </button>
             </div>
 

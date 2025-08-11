@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.authentication import SessionAuthentication
 from urllib3 import request
-
+import re
 from api.serializers import *
 from help_desk.models import *
 from .services.google_sheets import *
@@ -31,9 +31,134 @@ def user(request):
     serializer = UserSerializer(request.user)
     return Response(serializer.data)
 
+
 class SpreadsheetViewSet(viewsets.ViewSet):
     authentication_classes = [SessionAuthentication]
     permission_classes = [IsAuthenticated]
+
+    def detect_merge_column(self, df):
+        """
+        Detects column with format #####-P## or #####-C##
+        Returns column name if found, None otherwise
+        """
+        pattern = r'^\d{5}-[PC]\d{2}$'
+
+        for col in df.columns:
+            # Check if any non-null values in this column match the pattern
+            sample_values = df[col].dropna().astype(str).head(10)  # Check first 10 non-null values
+            if any(re.match(pattern, str(val)) for val in sample_values):
+                return col
+        return None
+
+    def extract_sort_key(self, value):
+        """
+        Extracts the 5-digit number from format #####-P## or #####-C##
+        Returns integer for sorting, or float('inf') if invalid format
+        """
+        if pd.isna(value):
+            return float('inf')
+
+        pattern = r'^(\d{5})-[PC]\d{2}$'
+        match = re.match(pattern, str(value))
+        if match:
+            return int(match.group(1))
+        return float('inf')
+
+    def merge_dataframes_by_key(self, existing_df, new_df, existing_merge_col, new_merge_col):
+        """
+        Merge dataframes with the following logic:
+        1. If a key exists in both, update the existing row with new data (non-empty values take precedence)
+        2. If a key only exists in new_df, add it as a new row
+        3. Keep all existing rows, even if not in new_df
+        4. Sort final result by the key column
+        """
+        try:
+            print(f"Starting merge - existing shape: {existing_df.shape}, new shape: {new_df.shape}")
+            print(f"Existing merge column: {existing_merge_col}, New merge column: {new_merge_col}")
+
+            if existing_df.empty:
+                # If no existing data, rename merge column and return sorted new data
+                print("No existing data, returning new data")
+                new_df_copy = new_df.copy().fillna('')
+                if new_merge_col != existing_merge_col:
+                    new_df_copy = new_df_copy.rename(columns={new_merge_col: existing_merge_col})
+
+                new_df_copy['_sort_key'] = new_df_copy[existing_merge_col].apply(self.extract_sort_key)
+                result = new_df_copy.sort_values('_sort_key').drop('_sort_key', axis=1)
+                return result
+
+            # Clean data - replace NaN with empty strings and create copies
+            existing_df = existing_df.copy().fillna('')
+            new_df = new_df.copy().fillna('')
+
+            # Rename new merge column to match existing if different
+            if new_merge_col != existing_merge_col and new_merge_col in new_df.columns:
+                new_df = new_df.rename(columns={new_merge_col: existing_merge_col})
+                print(f"Renamed merge column from {new_merge_col} to {existing_merge_col}")
+
+            # Create a combined column set
+            all_columns = list(existing_df.columns)
+            for col in new_df.columns:
+                if col not in all_columns:
+                    all_columns.append(col)
+
+            print(f"All columns after merge: {all_columns}")
+
+            # Convert dataframes to dictionaries for easier manipulation
+            existing_dict = {}
+            for _, row in existing_df.iterrows():
+                key = str(row[existing_merge_col]).strip()
+                if key and key != 'nan':  # Skip empty or nan keys
+                    existing_dict[key] = row.to_dict()
+
+            new_dict = {}
+            for _, row in new_df.iterrows():
+                key = str(row[existing_merge_col]).strip()
+                if key and key != 'nan':  # Skip empty or nan keys
+                    new_dict[key] = row.to_dict()
+
+            print(f"Existing keys: {len(existing_dict)}, New keys: {len(new_dict)}")
+
+            # Process all keys (existing and new)
+            all_keys = set(existing_dict.keys()) | set(new_dict.keys())
+            result_data = []
+
+            for key in all_keys:
+                merged_row = {}
+
+                # Initialize with empty values for all columns
+                for col in all_columns:
+                    merged_row[col] = ''
+
+                # Start with existing data if available
+                if key in existing_dict:
+                    for col, val in existing_dict[key].items():
+                        merged_row[col] = str(val) if val is not None else ''
+
+                # Update/overwrite with new data if available
+                if key in new_dict:
+                    for col, val in new_dict[key].items():
+                        val_str = str(val) if val is not None else ''
+                        # Only update if new value is not empty, or if existing value is empty
+                        if val_str != '' or merged_row.get(col, '') == '':
+                            merged_row[col] = val_str
+
+                result_data.append(merged_row)
+
+            # Create result dataframe
+            result_df = pd.DataFrame(result_data, columns=all_columns)
+
+            # Sort by merge column
+            result_df['_sort_key'] = result_df[existing_merge_col].apply(self.extract_sort_key)
+            result_df = result_df.sort_values('_sort_key').drop('_sort_key', axis=1)
+
+            print(f"Final merged dataframe shape: {result_df.shape}")
+            return result_df.fillna('')
+
+        except Exception as e:
+            print(f"Error in merge_dataframes_by_key: {str(e)}")
+            print(f"Error type: {type(e).__name__}")
+            raise e
 
     # DEFAULT GET: for retrieving a whole spreadsheet from google sheets for display in the frontend
     def retrieve(self, request, pk=None):
@@ -82,6 +207,7 @@ class SpreadsheetViewSet(viewsets.ViewSet):
                 'sheet_name': usersheet.sheet_name,
                 'sheet_date': usersheet.created_at,
                 'sheet_id': sheet_id,
+                'merge_column': getattr(usersheet, 'merge_column', None)  # Return stored merge column
             }, status=status.HTTP_200_OK)
 
         except Exception as e:
@@ -92,7 +218,7 @@ class SpreadsheetViewSet(viewsets.ViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-    #For checking if the user is allowed access to the spreadsheet before uploading
+    # For checking if the user is allowed access to the spreadsheet before uploading
     @action(detail=True, methods=['GET'])
     def check_perms(self, request, pk=None):
         print("checking permissions")
@@ -121,84 +247,169 @@ class SpreadsheetViewSet(viewsets.ViewSet):
                     temp_file.write(chunk)
                 temp_file_path = temp_file.name
 
+            # Read the uploaded CSV
+            uploaded_df = pd.read_csv(temp_file_path).fillna('')
+
+            # Get existing sheet data
             sheet_data, sheet_headers = padded_google_sheets(pk, 'A1:Z5')
 
+            # FIRST UPLOAD CASE
             if not sheet_data and not sheet_headers:
-                with open(temp_file_path, 'r', encoding='utf-8') as f:
-                    reader = csv.reader(f)
-                    data_to_upload = list(reader)
+                # Detect merge column in the uploaded file
+                merge_column = self.detect_merge_column(uploaded_df)
 
-                    write_google_sheets(pk, 'Sheet1', data_to_upload)
-                return Response({'status': 'first_upload_complete'}, status=status.HTTP_200_OK)
+                if not merge_column:
+                    return Response({
+                        'error': 'No column with required format (#####-P## or #####-C##) found'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+                # Store merge column in UserSheet model
+                usersheet = request.user.usersheet_set.get(sheet_id=pk)
+                usersheet.merge_column = merge_column
+                usersheet.save()
+
+                # Sort by the merge column before uploading
+                uploaded_df['_sort_key'] = uploaded_df[merge_column].apply(self.extract_sort_key)
+                uploaded_df = uploaded_df.sort_values('_sort_key').drop('_sort_key', axis=1)
+
+                data_to_upload = [uploaded_df.columns.tolist()] + uploaded_df.values.tolist()
+                write_google_sheets(pk, 'Sheet1', data_to_upload)
+
+                return Response({
+                    'status': 'first_upload_complete',
+                    'merge_column': merge_column
+                }, status=status.HTTP_200_OK)
+
+            # SUBSEQUENT UPLOADS
             else:
+                # Get stored merge column
+                usersheet = request.user.usersheet_set.get(sheet_id=pk)
+                stored_merge_column = getattr(usersheet, 'merge_column', None)
+
+                if not stored_merge_column:
+                    return Response({
+                        'error': 'No merge column stored for this sheet'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+                # Detect merge column in uploaded file
+                uploaded_merge_column = self.detect_merge_column(uploaded_df)
+
+                if not uploaded_merge_column:
+                    return Response({
+                        'error': 'No column with required format found in uploaded file'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
                 request.session['temp_file_path'] = temp_file_path
-                df = pd.read_csv(temp_file_path).fillna('')
+                request.session['uploaded_merge_column'] = uploaded_merge_column
+                request.session['stored_merge_column'] = stored_merge_column
 
                 return Response({
                     'success': True,
-                    'headers': df.columns.tolist(),
-                    'body': df.head(5).to_dict(orient='records'),
+                    'headers': uploaded_df.columns.tolist(),
+                    'body': uploaded_df.head(5).to_dict(orient='records'),
                     'sheet_data': sheet_data,
                     'sheet_headers': sheet_headers,
+                    'uploaded_merge_column': uploaded_merge_column,
+                    'stored_merge_column': stored_merge_column,
                 }, status=status.HTTP_200_OK)
 
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-
     @action(detail=True, methods=['POST'])
     def merge_sheets(self, request, pk=None):
         try:
-            left_column = request.data.get('left_column')
-            right_column = request.data.get('right_column')
             sheet_id = pk
             sheet_name = 'Sheet1'
-            #IMPORTANT: every user creates their own google sheet file with every spreadsheet created,
-            #thus their sheet tab name is all Sheet1. this 'Sheet1' is used to read all data from a google sheet file tab.
 
-            left_spreadsheet, left_spreadsheet_headers = padded_google_sheets(sheet_id, sheet_name) #returns the entire table
-            temp_file_path = request.session.get('temp_file_path') #uploaded csv file path
+            # Get merge columns from session
+            uploaded_merge_column = request.session.get('uploaded_merge_column')
+            stored_merge_column = request.session.get('stored_merge_column')
+            temp_file_path = request.session.get('temp_file_path')
 
+            print(f"Session data - uploaded_merge_column: {uploaded_merge_column}")
+            print(f"Session data - stored_merge_column: {stored_merge_column}")
+            print(f"Session data - temp_file_path: {temp_file_path}")
 
+            if not all([uploaded_merge_column, stored_merge_column, temp_file_path]):
+                return Response({
+                    'error': 'Missing session data for merge operation'
+                }, status=status.HTTP_400_BAD_REQUEST)
 
-            left_df = pd.DataFrame(left_spreadsheet, columns=left_spreadsheet_headers)
-            right_df = pd.read_csv(temp_file_path)
+            # Verify temp file exists
+            if not os.path.exists(temp_file_path):
+                return Response({
+                    'error': 'Temporary file not found'
+                }, status=status.HTTP_400_BAD_REQUEST)
 
-            #IMPORTANT: THE DEFAULT MERGE IS A LEFT SQL JOIN
-            merged_df = pd.merge(left_df, right_df, how='left', left_on=left_column, right_on=right_column)
-            merged_df = merged_df.where(pd.notnull(merged_df), None)
+            # Get existing spreadsheet data
+            print("Fetching existing spreadsheet data...")
+            left_spreadsheet, left_spreadsheet_headers = padded_google_sheets(sheet_id, sheet_name)
+            print(f"Existing data - rows: {len(left_spreadsheet)}, headers: {left_spreadsheet_headers}")
+
+            # Create existing dataframe
+            if left_spreadsheet and left_spreadsheet_headers:
+                existing_df = pd.DataFrame(left_spreadsheet, columns=left_spreadsheet_headers)
+            else:
+                existing_df = pd.DataFrame()
+
+            # Read uploaded CSV
+            print(f"Reading uploaded CSV from: {temp_file_path}")
+            uploaded_df = pd.read_csv(temp_file_path).fillna('')
+            print(f"Uploaded data - rows: {len(uploaded_df)}, columns: {list(uploaded_df.columns)}")
+
+            # Verify merge columns exist
+            if not existing_df.empty and stored_merge_column not in existing_df.columns:
+                return Response({
+                    'error': f'Stored merge column "{stored_merge_column}" not found in existing data. Available columns: {list(existing_df.columns)}'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            if uploaded_merge_column not in uploaded_df.columns:
+                return Response({
+                    'error': f'Upload merge column "{uploaded_merge_column}" not found in uploaded data. Available columns: {list(uploaded_df.columns)}'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Use the new merge logic
+            print("Starting merge process...")
+            merged_df = self.merge_dataframes_by_key(
+                existing_df,
+                uploaded_df,
+                stored_merge_column,  # Column name to use in final result
+                uploaded_merge_column  # Column name in uploaded data
+            )
+
+            print(f"Merge completed. Final shape: {merged_df.shape}")
 
             merged_headers = merged_df.columns.tolist()
-            merged_data = merged_df.to_dict(orient='records')
+            merged_data = merged_df.fillna('').replace([float('inf'), float('-inf')], '').to_dict(orient='records')
 
-            #stores the merged df in a temporary csv until user confirms
+            # Store merged data temporarily
             with tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='w+', newline='') as temp_file:
                 merged_df.to_csv(temp_file, index=False)
-                merged_data_path = temp_file.name  # Get the path to the temp file
+                merged_data_path = temp_file.name
 
-            # stores path to session
             request.session['merged_data_path'] = merged_data_path
-
-            if not left_spreadsheet and not left_spreadsheet_headers:
-                return Response(
-                    {'status': 'First Upload'},
-                    status=status.HTTP_200_OK
-                )
 
             return Response({
                 'success': True,
                 'merged_headers': merged_headers,
                 'merged_data': merged_data,
+                'merge_strategy': 'Key-based merge with update/insert logic'
             }, status=status.HTTP_200_OK)
+
         except Exception as e:
-            return Response(
-                {'error': f"Failed to merge sheets: {str(e)}"},
-            )
+            print(f"Error in merge_sheets: {str(e)}")
+            print(f"Error type: {type(e).__name__}")
+            import traceback
+            print(f"Full traceback: {traceback.format_exc()}")
+            return Response({
+                'error': f"Failed to merge sheets: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(detail=True, methods=['POST'])
     def confirm_merge_sheets(self, request, pk=None):
         merged_data_path = request.session.get('merged_data_path')
-        temp_file_path = request.session.get('temp_file_path')  # Get original upload path for cleanup
+        temp_file_path = request.session.get('temp_file_path')
 
         if not merged_data_path or not os.path.exists(merged_data_path):
             return Response({'error': 'No merge data found or session expired.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -207,7 +418,7 @@ class SpreadsheetViewSet(viewsets.ViewSet):
             # Read the merged data
             merged_df = pd.read_csv(merged_data_path, encoding='latin1').fillna('')
 
-            # Sheet1 is the default name of all google sheets, the files created via api also has this name
+            # Write to Google Sheets
             write_df_to_sheets(pk, 'Sheet1', merged_df)
 
             return Response({
@@ -215,7 +426,7 @@ class SpreadsheetViewSet(viewsets.ViewSet):
             }, status=status.HTTP_200_OK)
         except Exception as e:
             return Response(
-                {'error': f"Failed to merge sheets: {str(e)}"},
+                {'error': f"Failed to confirm merge: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
         finally:
@@ -226,10 +437,11 @@ class SpreadsheetViewSet(viewsets.ViewSet):
             if temp_file_path and os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
 
-            if 'merged_data_path' in request.session:
-                del request.session['merged_data_path']
-            if 'temp_file_path' in request.session:
-                del request.session['temp_file_path']
+            # Clean up session variables
+            session_keys = ['merged_data_path', 'temp_file_path', 'uploaded_merge_column', 'stored_merge_column']
+            for key in session_keys:
+                if key in request.session:
+                    del request.session[key]
 
     @action(detail=True, methods=['POST'])
     def delete_session_storage(self, request, pk=None):
@@ -242,10 +454,11 @@ class SpreadsheetViewSet(viewsets.ViewSet):
             if temp_file_path and os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
 
-            if 'merged_data_path' in request.session:
-                del request.session['merged_data_path']
-            if 'temp_file_path' in request.session:
-                del request.session['temp_file_path']
+            # Clean up all related session variables
+            session_keys = ['merged_data_path', 'temp_file_path', 'uploaded_merge_column', 'stored_merge_column']
+            for key in session_keys:
+                if key in request.session:
+                    del request.session[key]
 
             return Response({
                 'success': True,

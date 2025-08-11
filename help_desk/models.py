@@ -6,6 +6,7 @@ class UserSheet(models.Model): # Stores relationship between users and sheets to
     sheet_id = models.CharField(max_length=100)
     sheet_name = models.CharField(max_length=100)
     created_at = models.DateTimeField(auto_now_add=True)
+    merge_column = models.CharField(max_length=255, blank=True, null=True)
 
     def __str__(self):
         return self.sheet_id

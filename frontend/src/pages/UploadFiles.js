@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { fetchUser } from '../services/auth';
-import {redirect, useParams, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import axios from "axios";
 import api from "../utils/axiosConfig";
 import MultiStepForm from "../components/organisms/MultiStepForm";
@@ -12,12 +11,10 @@ export default function UploadFiles() {
     const [allowed, setAllowed] = useState(false)
     const [error, setError] = useState('')
 
-    //checks if user is allowed access to the sheet first
     useEffect(() => {
         const checkAllowed = async () => {
             try {
                 await axios.get(`/api/spreadsheets/${sheet_id}/check_perms/`);
-                // If the above line doesn't throw an error, permission is granted
                 setAllowed(true);
             } catch (err) {
                 console.error('User not allowed access:', err);
@@ -35,7 +32,6 @@ export default function UploadFiles() {
             await api.post(`/api/spreadsheets/${sheet_id}/delete_session_storage/`);
         } catch (err) {
             console.error('Close Failed', err);
-            setError('Closeed');
         } finally {
             navigate(`/spreadsheet/${sheet_id}/`)
         }
@@ -45,6 +41,23 @@ export default function UploadFiles() {
         return (
             <div className="flex items-center justify-center min-h-screen bg-gray-100">
                 <div className="w-16 h-16 border-4 border-dashed rounded-full animate-spin border-blue-500"></div>
+            </div>
+        );
+    }
+
+    if (!allowed) {
+        return (
+            <div className="flex items-center justify-center min-h-screen bg-gray-100">
+                <div className="bg-red-50 border border-red-200 rounded-lg p-6 max-w-md">
+                    <h2 className="text-lg font-semibold text-red-800 mb-2">Access Denied</h2>
+                    <p className="text-red-600">{error}</p>
+                    <button
+                        onClick={() => navigate('/')}
+                        className="mt-4 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded"
+                    >
+                        Go Back
+                    </button>
+                </div>
             </div>
         );
     }
