@@ -1,10 +1,13 @@
+// Updated App.js
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import {BrowserRouter, Routes, Route, Navigate} from 'react-router-dom';
 import SpreadSheet from './pages/Spreadsheet'
 import Dashboard from './pages/Dashboard';
 import UploadFile from './pages/UploadFiles';
 import Analytics from "./pages/Analytics";
+import Members from "./pages/Members";
 import Layout from "./components/organisms/Layout";
+import ExternalRedirect from "./components/atoms/ExternalRedirect";
 
 function App() {
   return (
@@ -14,10 +17,9 @@ function App() {
               <Route path="/spreadsheet/:sheet_id" element={<Layout/>}>
                   <Route index element={<SpreadSheet />}/>
                   <Route path="upload" element={<UploadFile />}/>
-                  <Route path="analytics" element={<Analytics/>} />
+                  <Route path="members" element={<Members />} />
               </Route>
-              <Route path="/dashboard" element={<Dashboard />} /> {/*IN CASE OF ROUTING MISTAKE*/}
-              <Route path="/" element={<Dashboard />} />
+              <Route path="/" element={<ExternalRedirect to="/dashboard/" />} />
           </Routes>
       </BrowserRouter>
   )

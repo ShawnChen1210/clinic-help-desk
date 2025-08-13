@@ -6,6 +6,10 @@ from rest_framework.decorators import api_view, action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.authentication import SessionAuthentication
+from registration.models import *
+import logging
+import traceback
+from django.db import transaction
 from urllib3 import request
 import re
 from api.serializers import *
@@ -31,6 +35,361 @@ def user(request):
     serializer = UserSerializer(request.user)
     return Response(serializer.data)
 
+
+logger = logging.getLogger(__name__)
+
+
+class MemberViewSet(viewsets.ViewSet):
+    """ViewSet for managing members and their roles"""
+    permission_classes = [IsAuthenticated]
+
+    def _check_staff_permission(self, user):
+        """Helper method to check if user has staff permissions"""
+        return user.is_staff or user.is_superuser
+
+    @action(detail=False, methods=['get'], url_path='current-user')
+    def current_user(self, request):
+        """Get current user info including staff status"""
+        try:
+            profile = UserProfile.objects.get(user=request.user)
+            is_verified = profile.is_verified
+        except UserProfile.DoesNotExist:
+            is_verified = False
+
+        user_data = {
+            'id': request.user.id,
+            'username': request.user.username,
+            'email': request.user.email,
+            'first_name': request.user.first_name,
+            'last_name': request.user.last_name,
+            'is_staff': request.user.is_staff,
+            'is_superuser': request.user.is_superuser,
+            'is_verified': is_verified,
+        }
+        print(str(user_data))
+        return Response(user_data)
+
+    def list(self, request):
+        """List all users with their roles (staff/superuser only)"""
+        if not self._check_staff_permission(request.user):
+            return Response(
+                {'error': 'Permission denied'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        users_data = []
+        users = User.objects.all().order_by('username')
+
+        for user in users:
+            # Get user profile
+            try:
+                profile = UserProfile.objects.get(user=user)
+                is_verified = profile.is_verified
+            except UserProfile.DoesNotExist:
+                is_verified = False
+                profile = None
+
+            # Get primary role and its data
+            primary_role = None
+            primary_role_data = {}
+            if profile:
+                try:
+                    primary_payment_role = profile.payment_detail
+                    if primary_payment_role:
+                        primary_role = primary_payment_role.polymorphic_ctype.model
+
+                        # Get the actual role data based on type
+                        if hasattr(primary_payment_role, 'hourly_wage'):
+                            primary_role_data['hourly_wage'] = float(primary_payment_role.hourly_wage)
+                        elif hasattr(primary_payment_role, 'commission_rate'):
+                            primary_role_data['commission_rate'] = float(primary_payment_role.commission_rate)
+                except AttributeError:
+                    primary_role = None
+
+            # Get additional roles and their data
+            additional_roles = []
+            additional_role_data = {}
+            if profile:
+                try:
+                    for role in profile.additional_roles.all():
+                        role_type = role.polymorphic_ctype.model
+                        additional_roles.append(role_type)
+
+                        # Get the specific role data
+                        if role_type == 'profitsharing':
+                            additional_role_data['profitsharing'] = {
+                                'sharing_rate': float(role.sharing_rate),
+                                'description': role.description
+                            }
+                        elif role_type == 'revenuesharing':
+                            additional_role_data['revenuesharing'] = {
+                                'sharing_rate': float(role.sharing_rate),
+                                'description': role.description,
+                                'target_user': role.target_user.username if role.target_user else ''
+                            }
+                        elif role_type == 'hasrent':
+                            additional_role_data['hasrent'] = {
+                                'monthly_rent': float(role.monthly_rent),
+                                'description': role.description
+                            }
+                except Exception as e:
+                    print(f"Error getting additional roles for {user.username}: {e}")
+                    additional_roles = []
+
+            user_data = {
+                'id': user.id,
+                'username': user.username,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'email': user.email,
+                'is_verified': is_verified,
+                'primaryRole': primary_role,
+                'primaryRoleData': primary_role_data,
+                'additionalRoles': additional_roles,
+                'additionalRoleData': additional_role_data,
+            }
+            users_data.append(user_data)
+
+        return Response(users_data)
+
+    @action(detail=True, methods=['post'], url_path='update-roles')
+    def update_roles(self, request, pk=None):
+        """Update user roles and verification status (staff/superuser only)"""
+        print(f"=== Starting update_roles for user {pk} ===")
+        print(f"Request data: {request.data}")
+
+        if not self._check_staff_permission(request.user):
+            print("Permission denied")
+            return Response(
+                {'error': 'Permission denied'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            print("Step 1: Finding user")
+            user = User.objects.get(pk=pk)
+            print(f"Found user: {user.username}")
+
+            print("Step 2: Getting or creating profile")
+            profile, created = UserProfile.objects.get_or_create(user=user)
+            print(f"Profile - Created: {created}, ID: {profile.id}")
+
+            data = request.data
+            primary_role = data.get('primary_role', '')
+            additional_roles = data.get('additional_roles', [])
+            is_verified = data.get('is_verified', False)
+            primary_role_values = data.get('primaryRoleValues', {})
+            additional_role_values = data.get('additionalRoleValues', {})
+
+            print(f"Primary role: {primary_role}")
+            print(f"Additional roles: {additional_roles}")
+            print(f"Is verified: {is_verified}")
+
+            with transaction.atomic():
+                print("Step 3: Updating verification status")
+                profile.is_verified = is_verified
+                profile.save()
+                print("Verification status updated")
+
+                print("Step 4: Handling primary role deletion")
+                # Delete existing primary role if it exists
+                if hasattr(profile, 'payment_detail') and profile.payment_detail:
+                    print(f"Deleting existing primary role: {profile.payment_detail}")
+                    try:
+                        old_role = profile.payment_detail
+                        old_role.delete()
+                        print("Successfully deleted existing primary role")
+                        # Refresh the profile to clear the cached relationship
+                        profile.refresh_from_db()
+                    except Exception as e:
+                        print(f"Error deleting primary role: {e}")
+                        print(f"Traceback: {traceback.format_exc()}")
+
+                print("Step 5: Handling additional roles deletion")
+                # Delete existing additional roles with proper constraint handling
+                try:
+                    existing_additional = profile.additional_roles.all()
+                    print(f"Found {existing_additional.count()} existing additional roles")
+
+                    # Delete each role individually to avoid constraint issues
+                    for role in existing_additional:
+                        print(f"Deleting: {role}")
+                        role.delete()
+
+                    print("Successfully deleted all existing additional roles")
+                    # Refresh the profile to clear the cached relationship
+                    profile.refresh_from_db()
+                except Exception as e:
+                    print(f"Error deleting additional roles: {e}")
+                    print(f"Traceback: {traceback.format_exc()}")
+
+                print("Step 6: Creating new primary role")
+                # Create new primary role if specified
+                if primary_role:
+                    print(f"Creating new primary role: {primary_role}")
+
+                    try:
+                        role_classes = {
+                            'hourlyemployee': HourlyEmployee,
+                            'hourlycontractor': HourlyContractor,
+                            'commissionemployee': CommissionEmployee,
+                            'commissioncontractor': CommissionContractor,
+                        }
+                        print("Role classes imported successfully")
+                    except NameError as e:
+                        print(f"NameError importing role classes: {e}")
+                        return Response(
+                            {'error': f'Role class import error: {e}'},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                        )
+
+                    if primary_role in role_classes:
+                        role_class = role_classes[primary_role]
+                        print(f"Using role class: {role_class}")
+
+                        try:
+                            if primary_role in ['hourlyemployee', 'hourlycontractor']:
+                                wage = primary_role_values.get('hourly_wage', 0.00)
+                                print(f"Creating hourly role with wage: {wage}")
+                                role_instance = role_class.objects.create(
+                                    user_profile=profile,
+                                    hourly_wage=wage,
+                                    payroll_dates=[]
+                                )
+                            elif primary_role in ['commissionemployee', 'commissioncontractor']:
+                                rate = primary_role_values.get('commission_rate', 0.00)
+                                print(f"Creating commission role with rate: {rate}")
+                                role_instance = role_class.objects.create(
+                                    user_profile=profile,
+                                    commission_rate=rate,
+                                    payroll_dates=[]
+                                )
+                            print(f"Successfully created primary role: {role_instance}")
+                            # Refresh to ensure the relationship is properly set
+                            profile.refresh_from_db()
+                        except Exception as e:
+                            print(f"Error creating primary role: {e}")
+                            print(f"Traceback: {traceback.format_exc()}")
+                            return Response(
+                                {'error': f'Failed to create primary role: {str(e)}'},
+                                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                            )
+
+                print("Step 7: Creating new additional roles")
+                # Create new additional roles with application-level constraint checking
+                try:
+                    additional_role_classes = {
+                        'profitsharing': ProfitSharing,
+                        'revenuesharing': RevenueSharing,
+                        'hasrent': HasRent,
+                    }
+                    print("Additional role classes imported successfully")
+                except NameError as e:
+                    print(f"NameError importing additional role classes: {e}")
+                    return Response(
+                        {'error': f'Additional role class import error: {e}'},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    )
+
+                # Check for duplicates in the request (application-level constraint)
+                if len(additional_roles) != len(set(additional_roles)):
+                    return Response(
+                        {'error': 'Cannot assign multiple roles of the same type'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                # ONLY create roles that are in the additional_roles list
+                for role_type in additional_roles:
+                    print(f"Processing additional role: {role_type}")
+                    if role_type in additional_role_classes:
+                        role_class = additional_role_classes[role_type]
+                        role_data = additional_role_values.get(role_type, {})
+                        print(f"Role data for {role_type}: {role_data}")
+
+                        try:
+                            if role_type == 'profitsharing':
+                                description = role_data.get('description', f"Profit sharing for {user.username}")
+                                sharing_rate = role_data.get('sharing_rate', 0.00)
+                                print(f"Creating ProfitSharing: desc='{description}', rate={sharing_rate}")
+
+                                role_instance = role_class.objects.create(
+                                    user_profile=profile,
+                                    description=description,
+                                    sharing_rate=sharing_rate
+                                )
+
+                            elif role_type == 'revenuesharing':
+                                # Handle target user lookup
+                                target_user = None
+                                target_username = role_data.get('target_user', '')
+                                print(f"Target username: '{target_username}'")
+
+                                if target_username and target_username.strip() and target_username != 'null':
+                                    try:
+                                        target_user = User.objects.get(username=target_username.strip())
+                                        print(f"Found target user: {target_user.username}")
+                                    except User.DoesNotExist:
+                                        print(f"Target user not found: {target_username}")
+                                        return Response(
+                                            {'error': f'Target user "{target_username}" not found'},
+                                            status=status.HTTP_400_BAD_REQUEST
+                                        )
+
+                                description = role_data.get('description', f"Revenue sharing for {user.username}")
+                                sharing_rate = role_data.get('sharing_rate', 0.00)
+                                print(
+                                    f"Creating RevenueSharing: desc='{description}', rate={sharing_rate}, target={target_user}")
+
+                                role_instance = role_class.objects.create(
+                                    user_profile=profile,
+                                    description=description,
+                                    target_user=target_user,
+                                    sharing_rate=sharing_rate
+                                )
+
+                            elif role_type == 'hasrent':
+                                description = role_data.get('description', f"Rent payment for {user.username}")
+                                monthly_rent = role_data.get('monthly_rent', 0.00)
+                                print(f"Creating HasRent: desc='{description}', rent={monthly_rent}")
+
+                                role_instance = role_class.objects.create(
+                                    user_profile=profile,
+                                    description=description,
+                                    monthly_rent=monthly_rent
+                                )
+
+                            print(f"Successfully created {role_type}: {role_instance}")
+
+                        except Exception as e:
+                            print(f"Error creating {role_type}: {e}")
+                            print(f"Traceback: {traceback.format_exc()}")
+                            return Response(
+                                {'error': f'Failed to create {role_type} role: {str(e)}'},
+                                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                            )
+                    else:
+                        print(f"Unknown role type: {role_type}")
+
+            print("=== Update completed successfully ===")
+            return Response({
+                'success': True,
+                'message': 'User roles updated successfully'
+            })
+
+        except User.DoesNotExist:
+            print(f"User not found: {pk}")
+            return Response(
+                {'error': 'User not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            print(f"Unexpected error in update_roles: {str(e)}")
+            print(f"Exception type: {type(e)}")
+            print(f"Traceback: {traceback.format_exc()}")
+            return Response(
+                {'error': f'Failed to update user roles: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class SpreadsheetViewSet(viewsets.ViewSet):
     authentication_classes = [SessionAuthentication]

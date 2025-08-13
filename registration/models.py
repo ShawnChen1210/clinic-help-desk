@@ -1,14 +1,70 @@
 from django.db import models
 from django.contrib.auth.models import User
-from pygments.lexer import default
+from polymorphic.models import PolymorphicModel
 
 
-# Create your models here.
-class UserProfile(models.Model): # Stores additional information regarding user in addition to django default user model
+class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
-    is_verified = models.BooleanField(default=False) #Only verified users get to access the dashboard and create sheets
-    billing_dates = models.JSONField(default=list)
-    role = models.CharField(default="member", max_length=50)
+    is_verified = models.BooleanField(default=False)
 
     def __str__(self):
         return str(self.user)
+
+class PrimaryPaymentRole(PolymorphicModel):
+    # This ensures each user can only have ONE primary payment role
+    user_profile = models.OneToOneField(UserProfile, on_delete=models.CASCADE, related_name="payment_detail")
+    payroll_dates = models.JSONField(default=list)
+
+    def __str__(self):
+        return f"{self.user_profile.user.username} - {self.polymorphic_ctype.name}"
+
+class HourlyEmployee(PrimaryPaymentRole):
+    hourly_wage = models.DecimalField(max_digits=8, decimal_places=2)
+
+    def calculate_pay(self, hours_worked):
+        return self.hourly_wage * hours_worked
+
+class HourlyContractor(PrimaryPaymentRole):
+    hourly_wage = models.DecimalField(max_digits=8, decimal_places=2)
+
+    def calculate_pay(self, hours_worked):
+        return self.hourly_wage * hours_worked
+
+class CommissionEmployee(PrimaryPaymentRole):
+    commission_rate = models.DecimalField(max_digits=8, decimal_places=2)
+
+    def calculate_pay(self, income):
+        return income * self.commission_rate
+
+class CommissionContractor(PrimaryPaymentRole):
+    commission_rate = models.DecimalField(max_digits=8, decimal_places=2)
+
+    def calculate_pay(self, income):
+        return income * self.commission_rate
+
+
+class AdditionalPaymentRole(PolymorphicModel):
+    user_profile = models.ForeignKey(
+        UserProfile,
+        on_delete=models.CASCADE,
+        related_name="additional_roles"
+    )
+    description = models.CharField(max_length=255)
+
+    # REMOVED the unique_together constraint that was causing issues
+
+class ProfitSharing(AdditionalPaymentRole):
+    sharing_rate = models.DecimalField(max_digits=8, decimal_places=2)
+
+class RevenueSharing(AdditionalPaymentRole):
+    target_user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="revenue_sharing_targets",
+        null=True,
+        blank=True
+    )
+    sharing_rate = models.DecimalField(max_digits=8, decimal_places=2)
+
+class HasRent(AdditionalPaymentRole):
+    monthly_rent = models.DecimalField(max_digits=8, decimal_places=2)

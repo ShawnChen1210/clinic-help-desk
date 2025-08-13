@@ -9,9 +9,14 @@ router.register(r'spreadsheets', SpreadsheetViewSet, basename='spreadsheet') #au
 
 analytics_router = DefaultRouter()
 analytics_router.register(r'analytics', AnalyticsViewSet, basename='analytics') #api/analytics/(insert pk)
+
+members_router = DefaultRouter()
+members_router.register(r'members', MemberViewSet, basename='members')
 urlpatterns = [
     path('csrf/', get_csrf, name='get_csrf'),
     path('user/', user, name='user'),
     path('', include(router.urls)),
     path('', include(analytics_router.urls)),
+
+    path('', include(members_router.urls)),
 ]

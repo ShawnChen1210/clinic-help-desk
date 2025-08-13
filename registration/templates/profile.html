@@ -1,0 +1,174 @@
+{% extends 'base.html' %}
+
+{% block title %} Profile {% endblock %}
+
+{% block content %}
+<div class="py-8 px-4">
+    <div class="max-w-2xl mx-auto">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-gray-900 mb-2">Edit Profile</h1>
+            <p class="text-gray-600">Update your personal information and preferences</p>
+        </div>
+
+        <!-- Messages -->
+        {% if messages %}
+            {% for message in messages %}
+                <div class="mb-6 p-4 rounded border {% if message.tags == 'success' %}bg-gray-50 border-gray-300 text-gray-700{% elif message.tags == 'error' %}bg-gray-100 border-gray-400 text-gray-800{% else %}bg-gray-50 border-gray-300 text-gray-700{% endif %}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endif %}
+
+        <!-- Payment Roles Display -->
+        <div class="border border-gray-200 rounded mb-6">
+            <div class="border-b border-gray-200 px-6 py-4">
+                <h2 class="text-xl font-semibold text-gray-900">Payment Roles</h2>
+            </div>
+            <div class="p-6 space-y-6">
+                <!-- Primary Payment Role -->
+                <div class="border-b border-gray-200 pb-6">
+                    <h3 class="text-lg font-medium text-gray-900 mb-4">Primary Payment Role</h3>
+                    {% if primary_role %}
+                        <div class="bg-gray-50 p-4 rounded">
+                            <div class="flex justify-between items-start mb-2">
+                                <span class="font-medium text-gray-900">{{ primary_role.polymorphic_ctype.name|title }}</span>
+                                <span class="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded">Primary</span>
+                            </div>
+
+                            {% if primary_role.polymorphic_ctype.name == "hourlyemployee" or primary_role.polymorphic_ctype.name == "hourlycontractor" %}
+                                <p class="text-gray-600">Hourly Wage: ${{ primary_role.hourly_wage }}</p>
+                            {% elif primary_role.polymorphic_ctype.name == "commissionemployee" or primary_role.polymorphic_ctype.name == "commissioncontractor" %}
+                                <p class="text-gray-600">Commission Rate: {{ primary_role.commission_rate }}%</p>
+                            {% endif %}
+
+                            {% if primary_role.payroll_dates %}
+                                <div class="mt-2">
+                                    <p class="text-sm text-gray-600">Payroll Dates:</p>
+                                    <div class="flex flex-wrap gap-1 mt-1">
+                                        {% for date in primary_role.payroll_dates %}
+                                            <span class="px-2 py-1 bg-gray-200 text-gray-700 text-xs rounded">{{ date }}</span>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            {% endif %}
+                        </div>
+                    {% else %}
+                        <div class="bg-yellow-50 border border-yellow-200 p-4 rounded">
+                            <p class="text-yellow-800">No primary payment role assigned. Contact administrator to set up your payment details.</p>
+                        </div>
+                    {% endif %}
+                </div>
+
+                <!-- Additional Payment Roles -->
+                <div>
+                    <h3 class="text-lg font-medium text-gray-900 mb-4">Additional Payment Roles</h3>
+                    {% if additional_roles %}
+                        <div class="space-y-3">
+                            {% for role in additional_roles %}
+                                <div class="bg-gray-50 p-4 rounded">
+                                    <div class="flex justify-between items-start mb-2">
+                                        <span class="font-medium text-gray-900">{{ role.polymorphic_ctype.name|title }}</span>
+                                        <span class="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded">Additional</span>
+                                    </div>
+
+                                    {% if role.description %}
+                                        <p class="text-gray-600 text-sm mb-2">{{ role.description }}</p>
+                                    {% endif %}
+
+                                    {% if role.polymorphic_ctype.name == "profitsharing" %}
+                                        <p class="text-gray-600">Sharing Rate: {{ role.sharing_rate }}%</p>
+                                    {% elif role.polymorphic_ctype.name == "revenuesharing" %}
+                                        <p class="text-gray-600">Sharing Rate: {{ role.sharing_rate }}%</p>
+                                        <p class="text-gray-600">Target User: {{ role.target_user.username }}</p>
+                                    {% elif role.polymorphic_ctype.name == "hasrent" %}
+                                        <p class="text-gray-600">Monthly Rent: ${{ role.monthly_rent }}</p>
+                                    {% endif %}
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="bg-gray-50 border border-gray-200 p-4 rounded">
+                            <p class="text-gray-600">No additional payment roles assigned.</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Form -->
+        <div class="border border-gray-200 rounded">
+            <div class="border-b border-gray-200 px-6 py-4">
+                <h2 class="text-xl font-semibold text-gray-900">Profile Settings</h2>
+            </div>
+
+            <form method="post" class="p-6 space-y-6">
+                {% csrf_token %}
+
+                <!-- Personal Information Section -->
+                <div class="border-b border-gray-200 pb-6">
+                    <h3 class="text-lg font-medium text-gray-900 mb-4">Personal Information</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- Username -->
+                        <div>
+                            <label for="username" class="block text-sm font-medium text-gray-700 mb-2">Username</label>
+                            <input type="text" id="username" name="username" value="{{ user.username }}" required
+                                   class="w-full px-4 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-gray-500 focus:border-gray-500">
+                        </div>
+
+                        <!-- First Name -->
+                        <div>
+                            <label for="first_name" class="block text-sm font-medium text-gray-700 mb-2">First Name</label>
+                            <input type="text" id="first_name" name="first_name" value="{{ user.first_name }}"
+                                   class="w-full px-4 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-gray-500 focus:border-gray-500">
+                        </div>
+
+                        <!-- Last Name -->
+                        <div>
+                            <label for="last_name" class="block text-sm font-medium text-gray-700 mb-2">Last Name</label>
+                            <input type="text" id="last_name" name="last_name" value="{{ user.last_name }}"
+                                   class="w-full px-4 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-gray-500 focus:border-gray-500">
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- Billing Dates Section -->
+                {% if primary_role %}
+                <div>
+                    <h3 class="text-lg font-medium text-gray-900 mb-4">Payroll Dates</h3>
+                    <p class="text-sm text-gray-600 mb-4">Enter dates from 1-28 or special strings "end of month" for dates 29-31. Empty fields will be ignored.</p>
+
+                    <div class="space-y-3">
+                        {% for date in primary_role.payroll_dates %}
+                            <input type="text" name="billing_dates" value="{{ date }}"
+                                   placeholder="1-28 or 'end of month'"
+                                   class="w-full px-4 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-gray-500 focus:border-gray-500">
+                        {% empty %}
+                            <input type="text" name="billing_dates"
+                                   placeholder="1-28 or 'end of month'"
+                                   class="w-full px-4 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-gray-500 focus:border-gray-500">
+                        {% endfor %}
+
+                        <!-- Additional empty fields -->
+                        {% for i in "12345" %}
+                            <input type="text" name="billing_dates"
+                                   placeholder="1-28 or 'end of month'"
+                                   class="w-full px-4 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-gray-500 focus:border-gray-500">
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Submit Button -->
+                <div class="pt-6">
+                    <button type="submit"
+                            class="w-full bg-gray-800 text-white py-3 px-6 rounded font-medium hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2">
+                        Update Profile
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
