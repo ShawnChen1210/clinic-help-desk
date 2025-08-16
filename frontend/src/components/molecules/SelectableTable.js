@@ -1,7 +1,7 @@
 import React from 'react';
 import { flexRender } from '@tanstack/react-table';
 
-// This component receives the table instance, selection state, and a handler from its parent
+
 export default function SelectableTable({ title, table, selectedColumn, onColumnSelect }) {
   if (!table) return <div>Loading...</div>;
 

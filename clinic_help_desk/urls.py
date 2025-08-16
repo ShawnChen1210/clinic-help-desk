@@ -12,10 +12,10 @@ react_app_view = ensure_csrf_cookie(TemplateView.as_view(template_name='index.ht
 urlpatterns = [
     # Your specific paths (admin, api) should come first
     path('admin/', admin.site.urls),
-    path('api/', include('api.urls')),
+    path('api/', include('api.api_urls')),
 
     # Other apps
-    path('', include('help_desk.urls')),
+    path('', include('api.urls')),
     path('registration/', include('django.contrib.auth.urls')),
     path('registration/', include('registration.urls')),
 

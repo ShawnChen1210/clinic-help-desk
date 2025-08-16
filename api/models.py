@@ -1,7 +1,55 @@
 from django.db import models
 from django.contrib.auth.models import User
 
-# A new model to store a user's column preferences for a specific sheet.
+class Clinic(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    description = models.TextField(blank=True, null=True)
+    address = models.CharField(max_length=255, blank=True, null=True)
+    phone = models.CharField(max_length=20, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.name
+
+class ClinicSpreadsheet(models.Model):
+    clinic = models.OneToOneField(Clinic, on_delete=models.CASCADE, related_name='spreadsheets')
+
+    # The 4 sheet IDs
+    compensation_sales_sheet_id = models.CharField(max_length=255, null=True, blank=True)
+    daily_transaction_sheet_id = models.CharField(max_length=255, null=True, blank=True)
+    transaction_report_sheet_id = models.CharField(max_length=255, null=True, blank=True)
+    payment_transaction_sheet_id = models.CharField(max_length=255, null=True, blank=True)
+
+    # For the compensation_sales_sheet merge
+    merge_column = models.CharField(max_length=100, null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name_plural = "Clinic Sheets"
+
+    def __str__(self):
+        return f"{self.clinic} - Sheets"
+
+    @classmethod
+    def get_sheets(cls):
+        """Get or create the singleton clinic sheets instance"""
+        sheets, created = cls.objects.get_or_create(id=1)
+        return sheets
+
+    @property
+    def has_sheets(self):
+        """Check if any sheets are created"""
+        return any([
+            self.compensation_sales_sheet_id,
+            self.daily_transaction_sheet_id,
+            self.transaction_report_sheet_id,
+            self.payment_transaction_sheet_id
+        ])
+
+# A new model to store a user's column preferences for a specific sheet. (for analytics)
 class SheetColumnPreference(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     sheet_id = models.CharField(max_length=255)

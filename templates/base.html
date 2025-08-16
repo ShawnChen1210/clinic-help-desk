@@ -16,10 +16,7 @@
             <div class="flex space-x-4">    
                 <a class="p-4" href="{% url 'home' %}">Home</a>
                 {% if request.user.userprofile.is_verified %}
-                <a class="p-4" href="{% url 'dashboard' %}">Dashboard</a>
-                {% endif %}
-                {% if request.user.is_staff %}
-                    <a class="p-4" href="{% url 'members' %}">Members</a>
+                <a class="p-4" href="{% url 'chd_app' %}">Launch App</a>
                 {% endif %}
             </div>
         

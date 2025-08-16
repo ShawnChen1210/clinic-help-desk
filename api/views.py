@@ -22,6 +22,14 @@ from django.middleware.csrf import get_token
 
 # Create your views here.
 
+@login_required() #view for loading the user into the react app
+def chd_app(request):
+    csrf_token = get_token(request)
+    return render(request, 'index.html', context={'csrf_token': csrf_token})
+
+def home(request):
+    return render(request, 'home.html')
+
 @api_view(['GET'])
 def get_csrf(request):
     """
@@ -37,6 +45,230 @@ def user(request):
 
 
 logger = logging.getLogger(__name__)
+
+class ClinicViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated]
+
+    def _check_staff_permission(self, user):
+        """Helper method to check if user has staff permissions"""
+        return user.is_staff or user.is_superuser
+
+    def _delete_clinic_sheets(self, clinic):
+        """Delete the 4 Google Sheets for a clinic"""
+        try:
+            spreadsheets = clinic.spreadsheets
+
+            sheet_ids = [
+                spreadsheets.compensation_sales_sheet_id,
+                spreadsheets.daily_transaction_sheet_id,
+                spreadsheets.transaction_report_sheet_id,
+                spreadsheets.payment_transaction_sheet_id
+            ]
+
+            deleted_count = 0
+            for sheet_id in sheet_ids:
+                if sheet_id:
+                    if delete_google_sheet(sheet_id):
+                        print(f"Successfully deleted Google Sheet: {sheet_id}")
+                        deleted_count += 1
+                    else:
+                        print(f"Failed to delete Google Sheet: {sheet_id}")
+
+            print(f"Successfully deleted {deleted_count} out of {len([id for id in sheet_ids if id])} sheets")
+            return deleted_count
+
+        except ClinicSpreadsheet.DoesNotExist:
+            print("No spreadsheets found for clinic")
+            return 0
+        except Exception as e:
+            print(f"Error deleting sheets: {e}")
+            return 0
+
+    def _create_clinic_sheets(self, clinic):
+        """Create the 4 Google Sheets for a clinic"""
+        try:
+            # Define sheet titles
+            sheet_titles = {
+                'compensation_sales': f"{clinic.name} - Compensation + Sales Report",
+                'daily_transaction': f"{clinic.name} - Daily Transaction Report",
+                'transaction_report': f"{clinic.name} - Transaction Report",
+                'payment_transaction': f"{clinic.name} - Payment Transaction Report"
+            }
+
+            # Create each sheet and collect IDs
+            sheet_ids = {}
+            for sheet_type, title in sheet_titles.items():
+                sheet_id = create_new_google_sheet(title)
+                if sheet_id:
+                    sheet_ids[f"{sheet_type}_sheet_id"] = sheet_id
+                    print(f"Created {sheet_type} sheet: {sheet_id}")
+                else:
+                    print(f"Failed to create {sheet_type} sheet")
+                    # If any sheet fails, we might want to clean up or handle differently
+
+            # Create or update ClinicSpreadsheet record
+            spreadsheet_data = {
+                'compensation_sales_sheet_id': sheet_ids.get('compensation_sales_sheet_id'),
+                'daily_transaction_sheet_id': sheet_ids.get('daily_transaction_sheet_id'),
+                'transaction_report_sheet_id': sheet_ids.get('transaction_report_sheet_id'),
+                'payment_transaction_sheet_id': sheet_ids.get('payment_transaction_sheet_id')
+            }
+
+            clinic_spreadsheet, created = ClinicSpreadsheet.objects.get_or_create(
+                clinic=clinic,
+                defaults=spreadsheet_data
+            )
+
+            if not created:
+                # Update existing record
+                for field, value in spreadsheet_data.items():
+                    if value:  # Only update if we got a valid sheet ID
+                        setattr(clinic_spreadsheet, field, value)
+                clinic_spreadsheet.save()
+
+            return clinic_spreadsheet
+
+        except Exception as e:
+            print(f"Error creating sheets for clinic {clinic.name}: {e}")
+            return None
+
+    def list(self, request):
+        """List all clinics"""
+        try:
+            clinics = Clinic.objects.all().order_by('name')
+            clinics_data = []
+
+            for clinic in clinics:
+                # Get or check if spreadsheets exist
+                try:
+                    spreadsheets = clinic.spreadsheets
+                    has_sheets = spreadsheets.has_sheets
+                except ClinicSpreadsheet.DoesNotExist:
+                    has_sheets = False
+
+                clinics_data.append({
+                    'id': clinic.id,
+                    'name': clinic.name,
+                    'created_at': clinic.created_at,
+                    'updated_at': clinic.updated_at,
+                    'has_sheets': has_sheets
+                })
+
+            return Response(clinics_data)
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to fetch clinics: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def retrieve(self, request, pk=None):
+        """Get a specific clinic"""
+        try:
+            clinic = Clinic.objects.get(pk=pk)
+
+            # Get or create spreadsheets
+            spreadsheets, created = ClinicSpreadsheet.objects.get_or_create(clinic=clinic)
+
+            response_data = {
+                'id': clinic.id,
+                'name': clinic.name,
+                'compensation_sales_sheet_id': spreadsheets.compensation_sales_sheet_id,
+                'daily_transaction_sheet_id': spreadsheets.daily_transaction_sheet_id,
+                'transaction_report_sheet_id': spreadsheets.transaction_report_sheet_id,
+                'payment_transaction_sheet_id': spreadsheets.payment_transaction_sheet_id,
+                'created_at': clinic.created_at,
+                'updated_at': clinic.updated_at
+            }
+            return Response(response_data)
+        except Clinic.DoesNotExist:
+            return Response(
+                {'error': 'Clinic not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to fetch clinic: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def create(self, request):
+        """Create a new clinic with automatic sheet creation"""
+        if not self._check_staff_permission(request.user):
+            return Response(
+                {'error': 'Permission denied'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            clinic_name = request.data.get('name', '').strip()
+
+            if not clinic_name:
+                return Response(
+                    {'error': 'Clinic name is required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Create the clinic
+            clinic = Clinic.objects.create(name=clinic_name)
+
+            # Automatically create Google Sheets
+            clinic_spreadsheet = self._create_clinic_sheets(clinic)
+
+            response_data = {
+                'id': clinic.id,
+                'name': clinic.name,
+                'created_at': clinic.created_at,
+                'updated_at': clinic.updated_at,
+                'has_sheets': clinic_spreadsheet is not None and clinic_spreadsheet.has_sheets
+            }
+
+            return Response(response_data, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            if 'UNIQUE constraint failed' in str(e):
+                return Response(
+                    {'error': 'A clinic with this name already exists'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            return Response(
+                {'error': f'Failed to create clinic: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def destroy(self, request, pk=None):
+        """Delete a clinic and its Google Sheets"""
+        if not self._check_staff_permission(request.user):
+            return Response(
+                {'error': 'Permission denied'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            clinic = Clinic.objects.get(pk=pk)
+            clinic_name = clinic.name
+
+            # Delete Google Sheets first
+            deleted_sheets_count = self._delete_clinic_sheets(clinic)
+
+            # Then delete database records (CASCADE will delete ClinicSpreadsheet)
+            clinic.delete()
+
+            return Response({
+                'success': True,
+                'message': f'Clinic "{clinic_name}" deleted successfully',
+                'deleted_sheets': deleted_sheets_count
+            })
+
+        except Clinic.DoesNotExist:
+            return Response(
+                {'error': 'Clinic not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to delete clinic: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class MemberViewSet(viewsets.ViewSet):
@@ -391,9 +623,61 @@ class MemberViewSet(viewsets.ViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+
 class SpreadsheetViewSet(viewsets.ViewSet):
     authentication_classes = [SessionAuthentication]
     permission_classes = [IsAuthenticated]
+
+    def _has_access(self, user):
+        """
+        Simplified permission check - only staff and superusers have access
+        """
+        return user.is_authenticated and (user.is_staff or user.is_superuser)
+
+    def _get_clinic_spreadsheet_by_sheet_id(self, sheet_id):
+        """
+        Find the ClinicSpreadsheet that owns this sheet_id
+        Returns the ClinicSpreadsheet object if found, None otherwise
+        """
+        try:
+            # Check all four possible sheet ID fields
+            clinic_spreadsheet = ClinicSpreadsheet.objects.filter(
+                models.Q(compensation_sales_sheet_id=sheet_id) |
+                models.Q(daily_transaction_sheet_id=sheet_id) |
+                models.Q(transaction_report_sheet_id=sheet_id) |
+                models.Q(payment_transaction_sheet_id=sheet_id)
+            ).first()
+
+            return clinic_spreadsheet
+        except Exception as e:
+            print(f"Error finding clinic spreadsheet: {e}")
+            return None
+
+    def _get_sheet_info(self, clinic_spreadsheet, sheet_id):
+        """
+        Get sheet information based on which field matches the sheet_id
+        """
+        if clinic_spreadsheet.compensation_sales_sheet_id == sheet_id:
+            return {
+                'name': f"{clinic_spreadsheet.clinic.name} - Compensation + Sales Report",
+                'type': 'compensation_sales'
+            }
+        elif clinic_spreadsheet.daily_transaction_sheet_id == sheet_id:
+            return {
+                'name': f"{clinic_spreadsheet.clinic.name} - Daily Transaction Report",
+                'type': 'daily_transaction'
+            }
+        elif clinic_spreadsheet.transaction_report_sheet_id == sheet_id:
+            return {
+                'name': f"{clinic_spreadsheet.clinic.name} - Transaction Report",
+                'type': 'transaction_report'
+            }
+        elif clinic_spreadsheet.payment_transaction_sheet_id == sheet_id:
+            return {
+                'name': f"{clinic_spreadsheet.clinic.name} - Payment Transaction Report",
+                'type': 'payment_transaction'
+            }
+        return {'name': 'Unknown Sheet', 'type': 'unknown'}
 
     def detect_merge_column(self, df):
         """
@@ -432,12 +716,8 @@ class SpreadsheetViewSet(viewsets.ViewSet):
         4. Sort final result by the key column
         """
         try:
-            print(f"Starting merge - existing shape: {existing_df.shape}, new shape: {new_df.shape}")
-            print(f"Existing merge column: {existing_merge_col}, New merge column: {new_merge_col}")
-
             if existing_df.empty:
                 # If no existing data, rename merge column and return sorted new data
-                print("No existing data, returning new data")
                 new_df_copy = new_df.copy().fillna('')
                 if new_merge_col != existing_merge_col:
                     new_df_copy = new_df_copy.rename(columns={new_merge_col: existing_merge_col})
@@ -453,15 +733,12 @@ class SpreadsheetViewSet(viewsets.ViewSet):
             # Rename new merge column to match existing if different
             if new_merge_col != existing_merge_col and new_merge_col in new_df.columns:
                 new_df = new_df.rename(columns={new_merge_col: existing_merge_col})
-                print(f"Renamed merge column from {new_merge_col} to {existing_merge_col}")
 
             # Create a combined column set
             all_columns = list(existing_df.columns)
             for col in new_df.columns:
                 if col not in all_columns:
                     all_columns.append(col)
-
-            print(f"All columns after merge: {all_columns}")
 
             # Convert dataframes to dictionaries for easier manipulation
             existing_dict = {}
@@ -475,8 +752,6 @@ class SpreadsheetViewSet(viewsets.ViewSet):
                 key = str(row[existing_merge_col]).strip()
                 if key and key != 'nan':  # Skip empty or nan keys
                     new_dict[key] = row.to_dict()
-
-            print(f"Existing keys: {len(existing_dict)}, New keys: {len(new_dict)}")
 
             # Process all keys (existing and new)
             all_keys = set(existing_dict.keys()) | set(new_dict.keys())
@@ -511,67 +786,52 @@ class SpreadsheetViewSet(viewsets.ViewSet):
             result_df['_sort_key'] = result_df[existing_merge_col].apply(self.extract_sort_key)
             result_df = result_df.sort_values('_sort_key').drop('_sort_key', axis=1)
 
-            print(f"Final merged dataframe shape: {result_df.shape}")
             return result_df.fillna('')
 
         except Exception as e:
             print(f"Error in merge_dataframes_by_key: {str(e)}")
-            print(f"Error type: {type(e).__name__}")
             raise e
 
     # DEFAULT GET: for retrieving a whole spreadsheet from google sheets for display in the frontend
     def retrieve(self, request, pk=None):
-        print(f"retrieving table data, pk is: {pk}")
-        print(f"User: {request.user}")
-
         sheet_id = pk
         user = request.user
 
-        # Check if user is authenticated
-        if not user.is_authenticated:
+        # Simplified permission check
+        if not self._has_access(user):
             return Response(
-                {'error': 'Authentication required'},
-                status=status.HTTP_401_UNAUTHORIZED
+                {'error': f'No permission for user {user.username}'},
+                status=status.HTTP_403_FORBIDDEN
             )
 
-        # Check if UserSheet exists for this user and sheet_id
-        usersheet_queryset = user.usersheet_set.filter(sheet_id=sheet_id)
-        print(f"UserSheet queryset count: {usersheet_queryset.count()}")
-
-        if not usersheet_queryset.exists():
-            # Debug: Show all sheets for this user
-            all_user_sheets = user.usersheet_set.all()
-            print(f"User has access to {all_user_sheets.count()} sheets:")
-            for sheet in all_user_sheets:
-                print(f"  - Sheet ID: {sheet.sheet_id}")
-
+        # Find the clinic spreadsheet that owns this sheet
+        clinic_spreadsheet = self._get_clinic_spreadsheet_by_sheet_id(sheet_id)
+        if not clinic_spreadsheet:
             return Response(
-                {'error': f'Sheet with ID {sheet_id} not found or no permission for user {user.username}'},
+                {'error': f'Sheet with ID {sheet_id} not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        usersheet = usersheet_queryset.first()
-        print(f"Found UserSheet: {usersheet.sheet_name}")
+        sheet_info = self._get_sheet_info(clinic_spreadsheet, sheet_id)
 
         try:
             # Fetch fresh data from Google Sheets
-            print(f"Fetching data from Google Sheets for ID: {sheet_id}")
             sheet_data, sheet_header = padded_google_sheets(sheet_id, 'Sheet1')
-            print(f"Successfully fetched {len(sheet_data)} rows of data")
 
             return Response({
                 'success': True,
                 'sheet_data': sheet_data,
                 'sheet_header': sheet_header,
-                'sheet_name': usersheet.sheet_name,
-                'sheet_date': usersheet.created_at,
+                'sheet_name': sheet_info['name'],
+                'sheet_type': sheet_info['type'],
+                'clinic_name': clinic_spreadsheet.clinic.name,
+                'clinic_id': clinic_spreadsheet.clinic.id,
+                'sheet_date': clinic_spreadsheet.created_at,
                 'sheet_id': sheet_id,
-                'merge_column': getattr(usersheet, 'merge_column', None)  # Return stored merge column
+                'merge_column': getattr(clinic_spreadsheet, 'merge_column', None)
             }, status=status.HTTP_200_OK)
 
         except Exception as e:
-            print(f"Error fetching Google Sheets data: {str(e)}")
-            print(f"Exception type: {type(e).__name__}")
             return Response(
                 {'error': f'Failed to fetch sheet data: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -580,21 +840,36 @@ class SpreadsheetViewSet(viewsets.ViewSet):
     # For checking if the user is allowed access to the spreadsheet before uploading
     @action(detail=True, methods=['GET'])
     def check_perms(self, request, pk=None):
-        print("checking permissions")
-        user = request.user
-        if user.usersheet_set.filter(sheet_id=pk).exists():
+        if self._has_access(request.user):
             return Response(
                 {'success': True},
                 status=status.HTTP_200_OK
             )
         else:
             return Response(
-                {'success': False},
-                status=status.HTTP_401_UNAUTHORIZED
+                {'success': False, 'error': 'No permission to access this sheet'},
+                status=status.HTTP_403_FORBIDDEN
             )
 
     @action(detail=True, methods=['POST'])
     def upload_csv(self, request, pk=None):
+        sheet_id = pk
+
+        # Simplified permission check
+        if not self._has_access(request.user):
+            return Response(
+                {'error': 'No permission to upload to this sheet'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Find the clinic spreadsheet
+        clinic_spreadsheet = self._get_clinic_spreadsheet_by_sheet_id(sheet_id)
+        if not clinic_spreadsheet:
+            return Response(
+                {'error': 'Sheet not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
         uploaded_file = request.FILES.get('file')
         if not uploaded_file:
             return Response({'error': 'no file provided'}, status=status.HTTP_400_BAD_REQUEST)
@@ -622,10 +897,9 @@ class SpreadsheetViewSet(viewsets.ViewSet):
                         'error': 'No column with required format (#####-P## or #####-C##) found'
                     }, status=status.HTTP_400_BAD_REQUEST)
 
-                # Store merge column in UserSheet model
-                usersheet = request.user.usersheet_set.get(sheet_id=pk)
-                usersheet.merge_column = merge_column
-                usersheet.save()
+                # Store merge column in ClinicSpreadsheet model
+                clinic_spreadsheet.merge_column = merge_column
+                clinic_spreadsheet.save()
 
                 # Sort by the merge column before uploading
                 uploaded_df['_sort_key'] = uploaded_df[merge_column].apply(self.extract_sort_key)
@@ -642,8 +916,7 @@ class SpreadsheetViewSet(viewsets.ViewSet):
             # SUBSEQUENT UPLOADS
             else:
                 # Get stored merge column
-                usersheet = request.user.usersheet_set.get(sheet_id=pk)
-                stored_merge_column = getattr(usersheet, 'merge_column', None)
+                stored_merge_column = getattr(clinic_spreadsheet, 'merge_column', None)
 
                 if not stored_merge_column:
                     return Response({
@@ -677,6 +950,13 @@ class SpreadsheetViewSet(viewsets.ViewSet):
 
     @action(detail=True, methods=['POST'])
     def merge_sheets(self, request, pk=None):
+        # Simplified permission check
+        if not self._has_access(request.user):
+            return Response(
+                {'error': 'No permission to merge sheets'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         try:
             sheet_id = pk
             sheet_name = 'Sheet1'
@@ -685,10 +965,6 @@ class SpreadsheetViewSet(viewsets.ViewSet):
             uploaded_merge_column = request.session.get('uploaded_merge_column')
             stored_merge_column = request.session.get('stored_merge_column')
             temp_file_path = request.session.get('temp_file_path')
-
-            print(f"Session data - uploaded_merge_column: {uploaded_merge_column}")
-            print(f"Session data - stored_merge_column: {stored_merge_column}")
-            print(f"Session data - temp_file_path: {temp_file_path}")
 
             if not all([uploaded_merge_column, stored_merge_column, temp_file_path]):
                 return Response({
@@ -702,9 +978,7 @@ class SpreadsheetViewSet(viewsets.ViewSet):
                 }, status=status.HTTP_400_BAD_REQUEST)
 
             # Get existing spreadsheet data
-            print("Fetching existing spreadsheet data...")
             left_spreadsheet, left_spreadsheet_headers = padded_google_sheets(sheet_id, sheet_name)
-            print(f"Existing data - rows: {len(left_spreadsheet)}, headers: {left_spreadsheet_headers}")
 
             # Create existing dataframe
             if left_spreadsheet and left_spreadsheet_headers:
@@ -713,9 +987,7 @@ class SpreadsheetViewSet(viewsets.ViewSet):
                 existing_df = pd.DataFrame()
 
             # Read uploaded CSV
-            print(f"Reading uploaded CSV from: {temp_file_path}")
             uploaded_df = pd.read_csv(temp_file_path).fillna('')
-            print(f"Uploaded data - rows: {len(uploaded_df)}, columns: {list(uploaded_df.columns)}")
 
             # Verify merge columns exist
             if not existing_df.empty and stored_merge_column not in existing_df.columns:
@@ -728,16 +1000,13 @@ class SpreadsheetViewSet(viewsets.ViewSet):
                     'error': f'Upload merge column "{uploaded_merge_column}" not found in uploaded data. Available columns: {list(uploaded_df.columns)}'
                 }, status=status.HTTP_400_BAD_REQUEST)
 
-            # Use the new merge logic
-            print("Starting merge process...")
+            # Use the merge logic
             merged_df = self.merge_dataframes_by_key(
                 existing_df,
                 uploaded_df,
                 stored_merge_column,  # Column name to use in final result
                 uploaded_merge_column  # Column name in uploaded data
             )
-
-            print(f"Merge completed. Final shape: {merged_df.shape}")
 
             merged_headers = merged_df.columns.tolist()
             merged_data = merged_df.fillna('').replace([float('inf'), float('-inf')], '').to_dict(orient='records')
@@ -757,16 +1026,19 @@ class SpreadsheetViewSet(viewsets.ViewSet):
             }, status=status.HTTP_200_OK)
 
         except Exception as e:
-            print(f"Error in merge_sheets: {str(e)}")
-            print(f"Error type: {type(e).__name__}")
-            import traceback
-            print(f"Full traceback: {traceback.format_exc()}")
             return Response({
                 'error': f"Failed to merge sheets: {str(e)}"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(detail=True, methods=['POST'])
     def confirm_merge_sheets(self, request, pk=None):
+        # Simplified permission check
+        if not self._has_access(request.user):
+            return Response(
+                {'error': 'No permission to confirm merge'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         merged_data_path = request.session.get('merged_data_path')
         temp_file_path = request.session.get('temp_file_path')
 
@@ -789,8 +1061,7 @@ class SpreadsheetViewSet(viewsets.ViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
         finally:
-            # TEMP FILE CLEANUP
-            print("Cleaning up temporary files and session data...")
+            # Clean up temporary files and session data
             if merged_data_path and os.path.exists(merged_data_path):
                 os.remove(merged_data_path)
             if temp_file_path and os.path.exists(temp_file_path):

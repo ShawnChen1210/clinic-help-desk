@@ -6,7 +6,6 @@ from .views import spreadsheet
 
 urlpatterns = [
     path('', views.home, name='home'),
-    path('dashboard/', views.dashboard, name='dashboard'),
     path('sheet/<str:sheet_id>/', views.sheet, name='sheet'),
     path('spreadsheet/<str:sheet_id>/', views.spreadsheet, name='spreadsheet',),
 

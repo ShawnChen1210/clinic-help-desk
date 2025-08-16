@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
-import { fetchUser } from '../services/auth';
+import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from "axios";
-import LinkButton from "../components/atoms/LinkButton";
 import { useListTable } from "../hooks/useListTable";
+import { useClinic } from '../context/ClinicContext';
+import { fetchUser } from "../services/auth";
 import TanstackTable from "../components/atoms/TanstackTable";
+import SpreadsheetNavbar from "../components/molecules/SpreadsheetNavbar";
 
 export default function SpreadsheetComponent() {
     const [userData, setUserData] = useState(null);
@@ -12,36 +13,34 @@ export default function SpreadsheetComponent() {
     const [sheetData, setSheetData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const { loading: clinicLoading } = useClinic(); // Get clinic loading state
 
-
-    // Fetch the user's data first and sets the current sheet id in the context. This runs once on mount.
+    // Fetch the user's data - no need to load clinic data here since Layout.js handles it
     useEffect(() => {
         const fetchInitialUser = async () => {
             try {
-                const res = await fetchUser(); // Fetches from your user API endpoint
+                const res = await fetchUser();
                 setUserData(res.data);
             } catch (err) {
                 console.error('User not authenticated:', err);
                 setError('Authentication failed. Please log in.');
-                setLoading(false); // Stop loading if user fetch fails
+                setLoading(false);
             }
         };
 
         fetchInitialUser();
     }, []);
 
-    // Fetch spreadsheet data ONLY AFTER we have a confirmed user.
     useEffect(() => {
-        if (!userData || !sheet_id) {
+        // Wait for both user data and clinic data to be ready
+        if (!userData || !sheet_id || clinicLoading) {
             return;
         }
 
         const fetchData = async () => {
             try {
                 setLoading(true);
-                console.log("getting django api response")
                 const response = await axios.get(`/api/spreadsheets/${sheet_id}/`);
-                console.log("response recieved")
                 setSheetData(response.data);
             } catch (err) {
                 if (err.response?.status === 404) {
@@ -56,22 +55,18 @@ export default function SpreadsheetComponent() {
             }
         };
 
+        fetchData();
 
-        if (sheet_id) {
-            fetchData();
-        }
+    }, [userData, sheet_id, clinicLoading]);
 
-    }, [userData, sheet_id]);
-
-    // Constructs the Tanstack table, Provide an empty array `[]` as a fallback if `sheetData` is null.
+    // Constructs the Tanstack table
     const table = useListTable({
         rawColumns: sheetData?.sheet_header ?? [],
         rawData: sheetData?.sheet_data ?? [],
     });
 
-
-    // Show loading state (spinner)
-    if (loading) {
+    // Show loading state - wait for both clinic and sheet data
+    if (loading || clinicLoading) {
         return (
             <div className="flex items-center justify-center min-h-screen bg-gray-100">
                 <div className="w-16 h-16 border-4 border-dashed rounded-full animate-spin border-blue-500"></div>
@@ -89,23 +84,9 @@ export default function SpreadsheetComponent() {
         return <div>No sheet data available</div>;
     }
 
-    const spreadsheetTitle = sheetData.sheet_name;
-
     return (
         <div>
-
-            {/* The top div (header bar) you requested */}
-            <div className="flex flex-wrap justify-between items-center bg-white p-4 sm:p-6 rounded-lg shadow-md mb-8">
-                <div>
-                    <h1 className="text-xl sm:text-2xl font-bold text-gray-800">Welcome, {userData?.username}!</h1>
-                    <h4 className="text-sm font-medium text-gray-500 mt-1">SheetName: {spreadsheetTitle}</h4>
-                </div>
-                <div className="flex space-x-2 mt-4 sm:mt-0">
-                    <LinkButton text="Upload CSV" link={`/spreadsheet/${sheet_id}/upload`} />
-                    <LinkButton text="Open In Google Sheets" link={`https://docs.google.com/spreadsheets/d/${sheet_id}`} newTab={true}/>
-                </div>
-            </div>
-
+            <SpreadsheetNavbar userData={userData} sheetData={sheetData} />
             <TanstackTable table={table}/>
         </div>
     );
