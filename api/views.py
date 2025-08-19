@@ -1,16 +1,16 @@
+from datetime import timezone
+
 from django.contrib.auth.decorators import login_required
-from django.db.models.functions import Trunc
-from django.shortcuts import render
+from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib import messages
 from rest_framework import viewsets, status
 from rest_framework.decorators import api_view, action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.authentication import SessionAuthentication
 from registration.models import *
-import logging
 import traceback
 from django.db import transaction
-from urllib3 import request
 import re
 from api.serializers import *
 from help_desk.models import *
@@ -18,11 +18,12 @@ from .services.google_sheets import *
 import pandas as pd
 import tempfile
 from django.middleware.csrf import get_token
+from .forms import *
 
 
 # Create your views here.
 
-@login_required() #view for loading the user into the react app
+@login_required(login_url='/registration/login_user/') #view for loading the user into the react app
 def chd_app(request):
     csrf_token = get_token(request)
     return render(request, 'index.html', context={'csrf_token': csrf_token})
@@ -43,8 +44,26 @@ def user(request):
     serializer = UserSerializer(request.user)
     return Response(serializer.data)
 
+@login_required(login_url='/registration/login_user/')
+def site_settings_view(request):
+    # Get or create the site settings
+    try:
+        site_settings = SiteSettings.objects.get(pk=1)
+    except SiteSettings.DoesNotExist:
+        site_settings = None
 
-logger = logging.getLogger(__name__)
+    if request.method == 'POST':
+        form = SiteSettingsForm(request.POST, instance=site_settings)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Settings updated successfully!')
+            return redirect('site_settings')
+        else:
+            messages.error(request, 'Please correct the errors below.')
+    else:
+        form = SiteSettingsForm(instance=site_settings)
+
+    return render(request, 'site_settings.html', {'form': form})
 
 class ClinicViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
@@ -679,6 +698,192 @@ class SpreadsheetViewSet(viewsets.ViewSet):
             }
         return {'name': 'Unknown Sheet', 'type': 'unknown'}
 
+    def _clean_csv_file(self, file_path):
+        """
+        General CSV cleaning function that handles:
+        - Extra header lines (like Jane Payments)
+        - Empty lines
+        - Malformed first lines
+        - Encoding issues
+        Returns cleaned dataframe
+        """
+        try:
+            # First, try reading normally with UTF-8
+            df = pd.read_csv(file_path, encoding='utf-8').fillna('')
+            if not df.empty and len(df.columns) > 3:  # Reasonable number of columns
+                return df
+        except UnicodeDecodeError:
+            # Try with latin1 encoding
+            try:
+                df = pd.read_csv(file_path, encoding='latin1').fillna('')
+                if not df.empty and len(df.columns) > 3:
+                    return df
+            except:
+                pass
+        except:
+            pass
+
+        # If normal reading failed, try cleaning the file
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                lines = f.readlines()
+        except UnicodeDecodeError:
+            with open(file_path, 'r', encoding='latin1', errors='ignore') as f:
+                lines = f.readlines()
+
+        # Remove empty lines and find the best header line
+        non_empty_lines = [line.strip() for line in lines if line.strip()]
+
+        if not non_empty_lines:
+            raise ValueError("File appears to be empty")
+
+        # Look for a line that looks like CSV headers (has commas and reasonable length)
+        header_line_index = 0
+        for i, line in enumerate(non_empty_lines):
+            if ',' in line and len(line.split(',')) >= 3:  # At least 3 columns
+                header_line_index = i
+                break
+
+        # Use the cleaned lines from header onwards
+        cleaned_lines = non_empty_lines[header_line_index:]
+
+        # Write to temp file and read as dataframe
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv', encoding='utf-8',
+                                         newline='') as temp_file:
+            temp_file.write('\n'.join(cleaned_lines))
+            cleaned_path = temp_file.name
+
+        try:
+            df = pd.read_csv(cleaned_path, encoding='utf-8').fillna('')
+            return df
+        except UnicodeDecodeError:
+            df = pd.read_csv(cleaned_path, encoding='latin1').fillna('')
+            return df
+        finally:
+            if os.path.exists(cleaned_path):
+                os.remove(cleaned_path)
+
+    def _detect_csv_type(self, df):
+        """
+        Simplified CSV type detection based on key headers
+        """
+        headers = [col.strip().lower() for col in df.columns]
+        header_set = set(headers)
+
+        # Define key headers for each type (only the most distinctive ones)
+        type_signatures = {
+            'daily_transaction': {'date', 'payment method', 'total', 'number of transactions'},
+            'transaction_report': {'payment date', 'patient_guid', 'applied to'},
+            'payment_transaction': {'payment type', 'customer charge', 'jane payments fee'},
+            'compensation_sales_compensation': {'commission rate', 'adjustments owed to staff member', 'practitioner'},
+            'compensation_sales_sales': {'location', 'staff member', 'payer', 'collected', 'balance'}
+        }
+
+        # Check for exact or close matches
+        for type_name, required_headers in type_signatures.items():
+            if required_headers.issubset(header_set):
+                if type_name.startswith('compensation_sales'):
+                    return 'compensation_sales', type_name.split('_')[-1]
+                else:
+                    return type_name, None
+
+        return None, None
+
+    def _get_target_sheet_id(self, clinic_id, sheet_type):
+        """
+        Get the sheet ID for the detected type
+        """
+        try:
+            clinic = Clinic.objects.get(pk=clinic_id)
+            clinic_spreadsheet, _ = ClinicSpreadsheet.objects.get_or_create(clinic=clinic)
+
+            field_map = {
+                'compensation_sales': clinic_spreadsheet.compensation_sales_sheet_id,
+                'daily_transaction': clinic_spreadsheet.daily_transaction_sheet_id,
+                'transaction_report': clinic_spreadsheet.transaction_report_sheet_id,
+                'payment_transaction': clinic_spreadsheet.payment_transaction_sheet_id,
+            }
+
+            return field_map.get(sheet_type)
+        except:
+            return None
+
+    def _sort_dataframe_by_type(self, df, sheet_type):
+        """
+        Sort dataframe based on sheet type requirements
+        """
+        try:
+            if sheet_type == 'payment_transaction':
+                # Sort by Payment column (integer) from biggest to smallest
+                if 'Payment' in df.columns:
+                    # Convert to numeric, treating non-numeric as 0
+                    df['_payment_sort'] = pd.to_numeric(df['Payment'], errors='coerce').fillna(0)
+                    df = df.sort_values('_payment_sort', ascending=False).drop('_payment_sort', axis=1)
+
+            elif sheet_type == 'daily_transaction':
+                # Sort by Date column from most recent to oldest
+                # Format: "August 02 2025, 11:00 AM"
+                if 'Date' in df.columns:
+                    df['_date_sort'] = pd.to_datetime(df['Date'], errors='coerce')
+                    df = df.sort_values('_date_sort', ascending=False, na_position='last').drop('_date_sort', axis=1)
+
+            elif sheet_type == 'transaction_report':
+                # Sort by Payment Date column from most recent to oldest
+                # Format: "07-21-2025"
+                if 'Payment Date' in df.columns:
+                    df['_date_sort'] = pd.to_datetime(df['Payment Date'], format='%m-%d-%Y', errors='coerce')
+                    df = df.sort_values('_date_sort', ascending=False, na_position='last').drop('_date_sort', axis=1)
+
+            elif sheet_type == 'compensation_sales':
+                # Keep existing merge column sorting logic
+                merge_column = self.detect_merge_column(df)
+                if merge_column:
+                    df['_sort_key'] = df[merge_column].apply(self.extract_sort_key)
+                    df = df.sort_values('_sort_key').drop('_sort_key', axis=1)
+
+            # Clean any NaN values that might have been introduced during sorting
+            return df.fillna('')
+
+        except Exception as e:
+            print(f"Error sorting dataframe: {e}")
+            # Return cleaned dataframe if sorting fails
+            return df.fillna('')
+
+    def _upload_to_sheet(self, sheet_id, df, require_merge_column=False, sheet_type=None):
+        """
+        Upload dataframe to Google Sheet, handling merge column logic and sorting
+        """
+        clinic_spreadsheet = self._get_clinic_spreadsheet_by_sheet_id(sheet_id)
+        existing_data, existing_headers = padded_google_sheets(sheet_id, 'A1:Z5')
+        is_first_upload = not existing_data and not existing_headers
+
+        if require_merge_column:
+            merge_column = self.detect_merge_column(df)
+            if not merge_column:
+                raise ValueError('This sheet type requires a column with format #####-P## or #####-C##')
+
+            if is_first_upload:
+                # Store merge column and sort data
+                clinic_spreadsheet.merge_column = merge_column
+                clinic_spreadsheet.save()
+
+        # Sort the dataframe based on sheet type (but skip compensation_sales as it has its own sorting logic)
+        if sheet_type and sheet_type != 'compensation_sales':
+            df = self._sort_dataframe_by_type(df, sheet_type)
+        elif sheet_type == 'compensation_sales' and is_first_upload:
+            # Only sort compensation_sales on first upload, merges handle their own sorting
+            df = self._sort_dataframe_by_type(df, sheet_type)
+
+        # Ensure data is clean before uploading
+        df = df.fillna('').replace([float('inf'), float('-inf')], '')
+
+        # Upload data
+        data_to_upload = [df.columns.tolist()] + df.values.tolist()
+        write_google_sheets(sheet_id, 'Sheet1', data_to_upload)
+
+        return 'first_upload' if is_first_upload else 'data_updated'
+
     def detect_merge_column(self, df):
         """
         Detects column with format #####-P## or #####-C##
@@ -851,6 +1056,121 @@ class SpreadsheetViewSet(viewsets.ViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
 
+    @action(detail=False, methods=['POST'])
+    def detect_and_upload(self, request):
+        """
+        Upload CSV, detect type, and upload to appropriate sheet
+        """
+        if not self._has_access(request.user):
+            return Response({'error': 'No permission'}, status=status.HTTP_403_FORBIDDEN)
+
+        clinic_id = request.data.get('clinic_id')
+        uploaded_file = request.FILES.get('file')
+
+        if not clinic_id or not uploaded_file:
+            return Response({'error': 'clinic_id and file are required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        temp_file_path = None
+        try:
+            # Save uploaded file
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as temp_file:
+                for chunk in uploaded_file.chunks():
+                    temp_file.write(chunk)
+                temp_file_path = temp_file.name
+
+            # Clean and read CSV using general cleaning method
+            df = self._clean_csv_file(temp_file_path)
+
+            # Detect type
+            sheet_type, subtype = self._detect_csv_type(df)
+            if not sheet_type:
+                return Response({
+                    'error': 'Could not detect CSV type from headers',
+                    'detected_headers': df.columns.tolist()
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Get target sheet
+            target_sheet_id = self._get_target_sheet_id(clinic_id, sheet_type)
+            if not target_sheet_id:
+                return Response({
+                    'error': f'No {sheet_type} sheet configured for this clinic'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Check if compensation_sales needs merge handling
+            if sheet_type == 'compensation_sales':
+                clinic_spreadsheet = self._get_clinic_spreadsheet_by_sheet_id(target_sheet_id)
+                existing_data, _ = padded_google_sheets(target_sheet_id, 'A1:Z5')
+
+                if existing_data:  # Not first upload, need merge preview
+                    merge_column = self.detect_merge_column(df)
+                    if not merge_column:
+                        return Response({
+                            'error': 'Compensation/Sales data requires merge column format #####-P## or #####-C##'
+                        }, status=status.HTTP_400_BAD_REQUEST)
+
+                    # Store for merge process
+                    request.session.update({
+                        'temp_file_path': temp_file_path,
+                        'uploaded_merge_column': merge_column,
+                        'stored_merge_column': clinic_spreadsheet.merge_column,
+                        'target_sheet_id': target_sheet_id
+                    })
+
+                    return Response({
+                        'success': True,
+                        'action': 'merge_required',
+                        'sheet_type': sheet_type,
+                        'target_sheet_id': target_sheet_id,
+                        'headers': df.columns.tolist(),
+                        'preview_data': df.head(5).to_dict(orient='records'),
+                    })
+
+            # Direct upload for other types or first upload
+            action = self._upload_to_sheet(
+                target_sheet_id,
+                df,
+                require_merge_column=(sheet_type == 'compensation_sales'),
+                sheet_type=sheet_type
+            )
+
+            return Response({
+                'success': True,
+                'action': action,
+                'sheet_type': sheet_type,
+                'target_sheet_id': target_sheet_id,
+                'message': f'Successfully uploaded {sheet_type} data'
+            })
+
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        finally:
+            # Clean up temp file if not stored in session
+            if temp_file_path and 'temp_file_path' not in request.session:
+                if os.path.exists(temp_file_path):
+                    os.remove(temp_file_path)
+
+    @action(detail=False, methods=['POST'])
+    def cleanup_temp_files(self, request):
+        """
+        Clean up temporary files from session
+        """
+        try:
+            session_files = ['merged_data_path', 'temp_file_path']
+            for file_key in session_files:
+                file_path = request.session.get(file_key)
+                if file_path and os.path.exists(file_path):
+                    os.remove(file_path)
+
+            # Clear all session data
+            session_keys = ['merged_data_path', 'temp_file_path', 'uploaded_merge_column',
+                            'stored_merge_column', 'target_sheet_id']
+            for key in session_keys:
+                request.session.pop(key, None)
+
+            return Response({'success': True})
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     @action(detail=True, methods=['POST'])
     def upload_csv(self, request, pk=None):
         sheet_id = pk
@@ -881,8 +1201,8 @@ class SpreadsheetViewSet(viewsets.ViewSet):
                     temp_file.write(chunk)
                 temp_file_path = temp_file.name
 
-            # Read the uploaded CSV
-            uploaded_df = pd.read_csv(temp_file_path).fillna('')
+            # Use general CSV cleaning method
+            uploaded_df = self._clean_csv_file(temp_file_path)
 
             # Get existing sheet data
             sheet_data, sheet_headers = padded_google_sheets(pk, 'A1:Z5')
@@ -901,9 +1221,11 @@ class SpreadsheetViewSet(viewsets.ViewSet):
                 clinic_spreadsheet.merge_column = merge_column
                 clinic_spreadsheet.save()
 
-                # Sort by the merge column before uploading
-                uploaded_df['_sort_key'] = uploaded_df[merge_column].apply(self.extract_sort_key)
-                uploaded_df = uploaded_df.sort_values('_sort_key').drop('_sort_key', axis=1)
+                # Sort by the merge column before uploading (compensation/sales data)
+                uploaded_df = self._sort_dataframe_by_type(uploaded_df, 'compensation_sales')
+
+                # Ensure data is clean before uploading
+                uploaded_df = uploaded_df.fillna('').replace([float('inf'), float('-inf')], '')
 
                 data_to_upload = [uploaded_df.columns.tolist()] + uploaded_df.values.tolist()
                 write_google_sheets(pk, 'Sheet1', data_to_upload)
@@ -952,152 +1274,120 @@ class SpreadsheetViewSet(viewsets.ViewSet):
     def merge_sheets(self, request, pk=None):
         # Simplified permission check
         if not self._has_access(request.user):
-            return Response(
-                {'error': 'No permission to merge sheets'},
-                status=status.HTTP_403_FORBIDDEN
-            )
+            return Response({'error': 'No permission'}, status=status.HTTP_403_FORBIDDEN)
 
         try:
-            sheet_id = pk
-            sheet_name = 'Sheet1'
+            # Use target_sheet_id from session (set by detect_and_upload) or fallback to URL
+            sheet_id = request.session.get('target_sheet_id', pk)
 
-            # Get merge columns from session
-            uploaded_merge_column = request.session.get('uploaded_merge_column')
-            stored_merge_column = request.session.get('stored_merge_column')
-            temp_file_path = request.session.get('temp_file_path')
+            # Get session data
+            session_data = {
+                'uploaded_merge_column': request.session.get('uploaded_merge_column'),
+                'stored_merge_column': request.session.get('stored_merge_column'),
+                'temp_file_path': request.session.get('temp_file_path')
+            }
 
-            if not all([uploaded_merge_column, stored_merge_column, temp_file_path]):
-                return Response({
-                    'error': 'Missing session data for merge operation'
-                }, status=status.HTTP_400_BAD_REQUEST)
+            if not all(session_data.values()):
+                return Response({'error': 'Missing merge data'}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Verify temp file exists
-            if not os.path.exists(temp_file_path):
-                return Response({
-                    'error': 'Temporary file not found'
-                }, status=status.HTTP_400_BAD_REQUEST)
+            if not os.path.exists(session_data['temp_file_path']):
+                return Response({'error': 'Upload file not found'}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Get existing spreadsheet data
-            left_spreadsheet, left_spreadsheet_headers = padded_google_sheets(sheet_id, sheet_name)
+            # Get existing data and merge
+            existing_data, existing_headers = padded_google_sheets(sheet_id, 'Sheet1')
+            existing_df = pd.DataFrame(existing_data, columns=existing_headers) if existing_data else pd.DataFrame()
 
-            # Create existing dataframe
-            if left_spreadsheet and left_spreadsheet_headers:
-                existing_df = pd.DataFrame(left_spreadsheet, columns=left_spreadsheet_headers)
-            else:
-                existing_df = pd.DataFrame()
+            # Use general CSV cleaning method
+            uploaded_df = self._clean_csv_file(session_data['temp_file_path'])
 
-            # Read uploaded CSV
-            uploaded_df = pd.read_csv(temp_file_path).fillna('')
-
-            # Verify merge columns exist
-            if not existing_df.empty and stored_merge_column not in existing_df.columns:
-                return Response({
-                    'error': f'Stored merge column "{stored_merge_column}" not found in existing data. Available columns: {list(existing_df.columns)}'
-                }, status=status.HTTP_400_BAD_REQUEST)
-
-            if uploaded_merge_column not in uploaded_df.columns:
-                return Response({
-                    'error': f'Upload merge column "{uploaded_merge_column}" not found in uploaded data. Available columns: {list(uploaded_df.columns)}'
-                }, status=status.HTTP_400_BAD_REQUEST)
-
-            # Use the merge logic
             merged_df = self.merge_dataframes_by_key(
-                existing_df,
-                uploaded_df,
-                stored_merge_column,  # Column name to use in final result
-                uploaded_merge_column  # Column name in uploaded data
+                existing_df, uploaded_df,
+                session_data['stored_merge_column'],
+                session_data['uploaded_merge_column']
             )
 
-            merged_headers = merged_df.columns.tolist()
-            merged_data = merged_df.fillna('').replace([float('inf'), float('-inf')], '').to_dict(orient='records')
+            # merge_dataframes_by_key already handles sorting for compensation_sales
+            # Ensure data is clean for storage
+            merged_df = merged_df.fillna('').replace([float('inf'), float('-inf')], '')
 
-            # Store merged data temporarily
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='w+', newline='') as temp_file:
-                merged_df.to_csv(temp_file, index=False)
-                merged_data_path = temp_file.name
-
-            request.session['merged_data_path'] = merged_data_path
+            # Store merged data with robust encoding
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='w+', encoding='utf-8',
+                                             newline='') as temp_file:
+                merged_df.fillna('').replace([float('inf'), float('-inf')], '').to_csv(temp_file, index=False,
+                                                                                       encoding='utf-8')
+                request.session['merged_data_path'] = temp_file.name
 
             return Response({
                 'success': True,
-                'merged_headers': merged_headers,
-                'merged_data': merged_data,
+                'merged_headers': merged_df.columns.tolist(),
+                'merged_data': merged_df.to_dict(orient='records'),
                 'merge_strategy': 'Key-based merge with update/insert logic'
-            }, status=status.HTTP_200_OK)
+            })
 
         except Exception as e:
-            return Response({
-                'error': f"Failed to merge sheets: {str(e)}"
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(detail=True, methods=['POST'])
     def confirm_merge_sheets(self, request, pk=None):
         # Simplified permission check
         if not self._has_access(request.user):
-            return Response(
-                {'error': 'No permission to confirm merge'},
-                status=status.HTTP_403_FORBIDDEN
-            )
+            return Response({'error': 'No permission'}, status=status.HTTP_403_FORBIDDEN)
 
+        # Use target_sheet_id from session or fallback to URL
+        sheet_id = request.session.get('target_sheet_id', pk)
         merged_data_path = request.session.get('merged_data_path')
-        temp_file_path = request.session.get('temp_file_path')
 
         if not merged_data_path or not os.path.exists(merged_data_path):
-            return Response({'error': 'No merge data found or session expired.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'No merge data found'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            # Read the merged data
-            merged_df = pd.read_csv(merged_data_path, encoding='latin1').fillna('')
+            # Read merged data with encoding fallback
+            try:
+                merged_df = pd.read_csv(merged_data_path, encoding='utf-8').fillna('')
+            except UnicodeDecodeError:
+                # Fallback to latin1 if utf-8 fails
+                merged_df = pd.read_csv(merged_data_path, encoding='latin1').fillna('')
 
-            # Write to Google Sheets
-            write_df_to_sheets(pk, 'Sheet1', merged_df)
+            # Clean any remaining problematic characters thoroughly
+            merged_df = merged_df.fillna('').replace([float('inf'), float('-inf'), 'inf', '-inf'], '')
 
-            return Response({
-                'success': True,
-            }, status=status.HTTP_200_OK)
+            # Ensure all data is string type to avoid upload issues
+            for col in merged_df.columns:
+                merged_df[col] = merged_df[col].astype(str).replace('nan', '')
+
+            write_df_to_sheets(sheet_id, 'Sheet1', merged_df)
+
+            return Response({'success': True})
         except Exception as e:
-            return Response(
-                {'error': f"Failed to confirm merge: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         finally:
-            # Clean up temporary files and session data
-            if merged_data_path and os.path.exists(merged_data_path):
-                os.remove(merged_data_path)
-            if temp_file_path and os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
-
-            # Clean up session variables
-            session_keys = ['merged_data_path', 'temp_file_path', 'uploaded_merge_column', 'stored_merge_column']
+            # Clean up all session data
+            session_keys = ['merged_data_path', 'temp_file_path', 'uploaded_merge_column',
+                            'stored_merge_column', 'target_sheet_id']
             for key in session_keys:
-                if key in request.session:
-                    del request.session[key]
+                file_path = request.session.get(key)
+                if key.endswith('_path') and file_path and os.path.exists(file_path):
+                    os.remove(file_path)
+                request.session.pop(key, None)
 
     @action(detail=True, methods=['POST'])
     def delete_session_storage(self, request, pk=None):
         try:
-            merged_data_path = request.session.get('merged_data_path')
-            temp_file_path = request.session.get('temp_file_path')
+            session_files = ['merged_data_path', 'temp_file_path']
+            for file_key in session_files:
+                file_path = request.session.get(file_key)
+                if file_path and os.path.exists(file_path):
+                    os.remove(file_path)
 
-            if merged_data_path and os.path.exists(merged_data_path):
-                os.remove(merged_data_path)
-            if temp_file_path and os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
-
-            # Clean up all related session variables
-            session_keys = ['merged_data_path', 'temp_file_path', 'uploaded_merge_column', 'stored_merge_column']
+            # Clean up all session data
+            session_keys = ['merged_data_path', 'temp_file_path', 'uploaded_merge_column',
+                            'stored_merge_column', 'target_sheet_id']
             for key in session_keys:
-                if key in request.session:
-                    del request.session[key]
+                request.session.pop(key, None)
 
-            return Response({
-                'success': True,
-            }, status=status.HTTP_200_OK)
+            return Response({'success': True})
         except Exception as e:
-            return Response(
-                {'error': f"Failed to delete temporary files: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class AnalyticsViewSet(viewsets.ViewSet):
     column_pref_queryset = SheetColumnPreference.objects.all()
@@ -1229,6 +1519,96 @@ class AnalyticsViewSet(viewsets.ViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+
+class PayrollViewSet(viewsets.ViewSet):
+    """
+    ViewSet for handling payroll-related operations
+    """
+    permission_classes = [IsAuthenticated]
+
+    @action(detail=True, methods=['get'])
+    def get_user(self, request, pk=None):
+        """
+        Get user details for payroll generation
+        URL: /api/payroll/{user_id}/get_user/
+        """
+        # Check if the requesting user has permission to access payroll
+        if not (request.user.is_staff or request.user.is_superuser):
+            return Response(
+                {'error': 'You do not have permission to access payroll data'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            user = get_object_or_404(User, id=pk)
+            print(f"Found user: {user}")
+
+            # Get user profile and payment details
+            try:
+                user_profile = user.userprofile
+                payment_detail = getattr(user_profile, 'payment_detail', None)
+                payroll_dates = payment_detail.get_payroll_dates() if payment_detail else ['end of month']
+            except:
+                payroll_dates = ['end of month']
+
+            # Get primary role if you have a role system
+            primary_role = getattr(user_profile, 'payment_detail', None) if 'user_profile' in locals() else None
+            primary_role_name = primary_role.__class__.__name__ if primary_role else None
+
+            user_data = {
+                'id': user.id,
+                'username': user.username,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'email': user.email,
+                'is_verified': getattr(user, 'is_verified', False),
+                'primaryRole': primary_role_name,
+                'payroll_dates': payroll_dates,
+                'date_joined': user.date_joined,
+                'is_active': user.is_active,
+            }
+
+            return Response(user_data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            print(f"Error in get_user: {str(e)}")
+            return Response(
+                {'error': f'Failed to fetch user details: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=True, methods=['post'])
+    def generate_payroll(self, request, pk=None):
+        """
+        Generate payroll for a specific user
+        URL: /api/payroll/{user_id}/generate_payroll/
+        """
+        # Check permissions
+        if not (request.user.is_staff or request.user.is_superuser):
+            return Response(
+                {'error': 'You do not have permission to generate payroll'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            user = get_object_or_404(User, id=pk)
+
+            # TODO: Implement actual payroll generation logic here
+            payroll_data = {
+                'user_id': user.id,
+                'user_name': f"{user.first_name} {user.last_name}".strip() or user.username,
+                'status': 'generated',
+                'message': 'Payroll generation completed successfully',
+                'generated_at': timezone.now(),
+            }
+
+            return Response(payroll_data, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to generate payroll: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 

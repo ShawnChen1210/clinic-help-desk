@@ -1,16 +1,24 @@
 import React, { useState, useEffect } from 'react';
-import { NavLink, useParams } from 'react-router-dom';
+import { NavLink, useParams, useLocation } from 'react-router-dom';
 import { useClinic } from "../../context/ClinicContext";
 import api from '../../utils/axiosConfig';
 
 export default function Navbar() {
     const { clinic_id } = useParams();
+    const location = useLocation();
     const { clinicName, sheets, loading: clinicLoading } = useClinic();
     const [currentUser, setCurrentUser] = useState(null);
 
     useEffect(() => {
         fetchCurrentUser();
     }, []);
+
+    // Clean up temp files when leaving upload pages
+    useEffect(() => {
+        if (!location.pathname.includes('/upload')) {
+            api.post('/api/spreadsheets/cleanup_temp_files/').catch(() => {});
+        }
+    }, [location.pathname]);
 
     const fetchCurrentUser = async () => {
         try {
@@ -21,13 +29,8 @@ export default function Navbar() {
         }
     };
 
-    // Get the default sheet (compensation & sales) for direct access
     const defaultSheetId = sheets?.compensation_sales_sheet_id;
-
-    // This function is used by NavLink to apply a style to the active link
-    const navLinkStyles = ({ isActive }) => {
-        return isActive ? 'bg-gray-600 font-bold' : '';
-    };
+    const navLinkStyles = ({ isActive }) => isActive ? 'bg-gray-600 font-bold' : '';
 
     return (
         <div className="sticky top-0 h-screen w-48 bg-gray-800 text-white flex flex-col">
@@ -36,14 +39,11 @@ export default function Navbar() {
                     Clinic Help Desk
                 </NavLink>
                 {clinicName && (
-                    <div className="text-sm text-gray-400 mt-1">
-                        {clinicName}
-                    </div>
+                    <div className="text-sm text-gray-400 mt-1">{clinicName}</div>
                 )}
             </div>
 
             <nav className="flex-grow p-4 space-y-2">
-                {/* Dashboard Link */}
                 {clinic_id && (
                     <NavLink
                         to={`/chd-app/${clinic_id}`}
@@ -56,8 +56,7 @@ export default function Navbar() {
                     </NavLink>
                 )}
 
-                {/* Spreadsheets Link - Goes to default (compensation & sales) */}
-                {currentUser && (currentUser.is_staff || currentUser.is_superuser) && clinic_id && (
+                {currentUser?.is_staff && clinic_id && (
                     <>
                         {defaultSheetId ? (
                             <NavLink
@@ -69,42 +68,31 @@ export default function Navbar() {
                                 Spreadsheets
                             </NavLink>
                         ) : clinicLoading ? (
-                            <div className="py-2 px-4 text-gray-400 text-sm">
-                                Loading sheets...
-                            </div>
+                            <div className="py-2 px-4 text-gray-400 text-sm">Loading sheets...</div>
                         ) : (
-                            <div className="py-2 px-4 text-gray-400 text-sm">
-                                No sheets available
-                            </div>
+                            <div className="py-2 px-4 text-gray-400 text-sm">No sheets available</div>
                         )}
+
+                        <NavLink
+                            to={`/chd-app/${clinic_id}/upload`}
+                            className={({ isActive }) =>
+                                `block py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 ${navLinkStyles({ isActive })}`
+                            }
+                        >
+                            Upload File
+                        </NavLink>
+
+                        <NavLink
+                            to={`/chd-app/${clinic_id}/members`}
+                            className={({ isActive }) =>
+                                `block py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 ${navLinkStyles({ isActive })}`
+                            }
+                        >
+                            Members
+                        </NavLink>
                     </>
                 )}
 
-                {/* Upload File Link */}
-                {currentUser && (currentUser.is_staff || currentUser.is_superuser) && clinic_id && (
-                    <NavLink
-                        to={`/chd-app/${clinic_id}/upload`}
-                        className={({ isActive }) =>
-                            `block py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 ${navLinkStyles({ isActive })}`
-                        }
-                    >
-                        Upload File
-                    </NavLink>
-                )}
-
-                {/* Members Link - Only show to staff and superusers */}
-                {currentUser && (currentUser.is_staff || currentUser.is_superuser) && clinic_id && (
-                    <NavLink
-                        to={`/chd-app/${clinic_id}/members`}
-                        className={({ isActive }) =>
-                            `block py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 ${navLinkStyles({ isActive })}`
-                        }
-                    >
-                        Members
-                    </NavLink>
-                )}
-
-                {/* Show message if no clinic is selected */}
                 {!clinic_id && (
                     <div className="py-4 px-4 text-gray-400 text-sm text-center">
                         Select a clinic to view options
@@ -112,7 +100,6 @@ export default function Navbar() {
                 )}
             </nav>
 
-            {/* User Info at Bottom */}
             {currentUser && (
                 <div className="p-4 border-t border-gray-700">
                     <div className="text-sm">

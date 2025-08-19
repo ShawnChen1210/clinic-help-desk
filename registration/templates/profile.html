@@ -29,24 +29,35 @@
                 <!-- Primary Payment Role -->
                 <div class="border-b border-gray-200 pb-6">
                     <h3 class="text-lg font-medium text-gray-900 mb-4">Primary Payment Role</h3>
-                    {% if primary_role %}
+                    {% if primary_role_details %}
                         <div class="bg-gray-50 p-4 rounded">
                             <div class="flex justify-between items-start mb-2">
-                                <span class="font-medium text-gray-900">{{ primary_role.polymorphic_ctype.name|title }}</span>
+                                <span class="font-medium text-gray-900">
+                                    {% if primary_role_details.employment_type %}
+                                        {{ primary_role_details.employment_type }}
+                                        {% if primary_role_details.hourly_wage %}
+                                            (Hourly)
+                                        {% elif primary_role_details.commission_rate %}
+                                            (Commission)
+                                        {% endif %}
+                                    {% else %}
+                                        {{ primary_role_details.type }}
+                                    {% endif %}
+                                </span>
                                 <span class="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded">Primary</span>
                             </div>
 
-                            {% if primary_role.polymorphic_ctype.name == "hourlyemployee" or primary_role.polymorphic_ctype.name == "hourlycontractor" %}
-                                <p class="text-gray-600">Hourly Wage: ${{ primary_role.hourly_wage }}</p>
-                            {% elif primary_role.polymorphic_ctype.name == "commissionemployee" or primary_role.polymorphic_ctype.name == "commissioncontractor" %}
-                                <p class="text-gray-600">Commission Rate: {{ primary_role.commission_rate }}%</p>
+                            {% if primary_role_details.hourly_wage %}
+                                <p class="text-gray-600">Hourly Wage: ${{ primary_role_details.hourly_wage }}</p>
+                            {% elif primary_role_details.commission_rate %}
+                                <p class="text-gray-600">Commission Rate: {{ primary_role_details.commission_rate }}%</p>
                             {% endif %}
 
-                            {% if primary_role.payroll_dates %}
+                            {% if primary_role_details.payroll_dates %}
                                 <div class="mt-2">
                                     <p class="text-sm text-gray-600">Payroll Dates:</p>
                                     <div class="flex flex-wrap gap-1 mt-1">
-                                        {% for date in primary_role.payroll_dates %}
+                                        {% for date in primary_role_details.payroll_dates %}
                                             <span class="px-2 py-1 bg-gray-200 text-gray-700 text-xs rounded">{{ date }}</span>
                                         {% endfor %}
                                     </div>
@@ -68,7 +79,13 @@
                             {% for role in additional_roles %}
                                 <div class="bg-gray-50 p-4 rounded">
                                     <div class="flex justify-between items-start mb-2">
-                                        <span class="font-medium text-gray-900">{{ role.polymorphic_ctype.name|title }}</span>
+                                        <span class="font-medium text-gray-900">
+                                            {% if role.type_display %}
+                                                {{ role.type_display }}
+                                            {% else %}
+                                                {{ role.type }}
+                                            {% endif %}
+                                        </span>
                                         <span class="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded">Additional</span>
                                     </div>
 
@@ -76,12 +93,15 @@
                                         <p class="text-gray-600 text-sm mb-2">{{ role.description }}</p>
                                     {% endif %}
 
-                                    {% if role.polymorphic_ctype.name == "profitsharing" %}
+                                    {% if role.sharing_rate %}
                                         <p class="text-gray-600">Sharing Rate: {{ role.sharing_rate }}%</p>
-                                    {% elif role.polymorphic_ctype.name == "revenuesharing" %}
-                                        <p class="text-gray-600">Sharing Rate: {{ role.sharing_rate }}%</p>
+                                    {% endif %}
+
+                                    {% if role.target_user %}
                                         <p class="text-gray-600">Target User: {{ role.target_user.username }}</p>
-                                    {% elif role.polymorphic_ctype.name == "hasrent" %}
+                                    {% endif %}
+
+                                    {% if role.monthly_rent %}
                                         <p class="text-gray-600">Monthly Rent: ${{ role.monthly_rent }}</p>
                                     {% endif %}
                                 </div>
@@ -134,13 +154,13 @@
                 </div>
 
                 <!-- Billing Dates Section -->
-                {% if primary_role %}
+                {% if primary_role_details %}
                 <div>
                     <h3 class="text-lg font-medium text-gray-900 mb-4">Payroll Dates</h3>
                     <p class="text-sm text-gray-600 mb-4">Enter dates from 1-28 or special strings "end of month" for dates 29-31. Empty fields will be ignored.</p>
 
                     <div class="space-y-3">
-                        {% for date in primary_role.payroll_dates %}
+                        {% for date in primary_role_details.payroll_dates %}
                             <input type="text" name="billing_dates" value="{{ date }}"
                                    placeholder="1-28 or 'end of month'"
                                    class="w-full px-4 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-gray-500 focus:border-gray-500">

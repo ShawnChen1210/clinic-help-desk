@@ -1,23 +1,26 @@
 import React, { useState } from "react";
-import {useParams} from "react-router-dom";
-import api from '../../utils/axiosConfig'; // FIX 1: Import your configured api instance
+import api from '../../utils/axiosConfig';
 import TanstackTable from "../atoms/TanstackTable";
 
-export default function ConfirmMergeForm({ table, onMergeSuccess }) {
-    const { sheet_id } = useParams();
-    // FIX 3: Initialize loading state to false
+export default function ConfirmMergeForm({ table, onMergeSuccess, targetSheetId }) {
     const [loading, setLoading] = useState(false);
 
-    const onSubmitMerge = async () => { // The 'event' parameter isn't needed here
-        setLoading(true); // Set loading to true when the process starts
+    const onSubmitMerge = async () => {
+        if (!targetSheetId) {
+            console.error('No target sheet ID provided');
+            alert('Error: No target sheet ID available');
+            return;
+        }
+
+        setLoading(true);
         try {
-            const response = await api.post(`/api/spreadsheets/${sheet_id}/confirm_merge_sheets/`);
-            onMergeSuccess(response.data); // It's good practice to notify the parent on success
+            const response = await api.post(`/api/spreadsheets/${targetSheetId}/confirm_merge_sheets/`);
+            onMergeSuccess(response.data);
         } catch (err) {
-            console.error('Error confirming merge:', err.response.data.error);
-            alert('Failed to confirm merge.'); // Give user feedback
+            console.error('Error confirming merge:', err.response?.data?.error || err.message);
+            alert(`Failed to confirm merge: ${err.response?.data?.error || 'Unknown error'}`);
         } finally {
-            setLoading(false); // Set loading to false when the process is done// Redirects to the spreadsheet
+            setLoading(false);
         }
     };
 
@@ -31,9 +34,8 @@ export default function ConfirmMergeForm({ table, onMergeSuccess }) {
                 <button
                     type="button"
                     onClick={onSubmitMerge}
-                    // Make the button full-width on small screens, but constrained on larger screens
                     className="w-full max-w-md mx-auto block bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded-lg transition-colors disabled:bg-gray-400"
-                    disabled={loading}
+                    disabled={loading || !targetSheetId}
                 >
                     {loading ? 'Saving...' : 'Confirm & Save'}
                 </button>

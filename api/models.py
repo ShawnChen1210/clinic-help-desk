@@ -61,3 +61,10 @@ class SheetColumnPreference(models.Model):
 
     def __str__(self):
         return f"{self.user.username}'s preference for {self.sheet_id}"
+
+class SiteSettings(models.Model):
+    gst = models.DecimalField(max_digits=8, decimal_places=4)
+    pst = models.DecimalField(max_digits=8, decimal_places=4)
+    cpp = models.DecimalField(max_digits=8, decimal_places=4)
+    ei_ee = models.DecimalField(max_digits=8, decimal_places=4)
+    ei_er = models.DecimalField(max_digits=8, decimal_places=4)

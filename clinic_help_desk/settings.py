@@ -195,3 +195,5 @@ REST_FRAMEWORK = {
 CSRF_TRUSTED_ORIGINS = [
     'http://localhost:3000',
 ]
+
+LOGIN_URL = '/registration/login_user/'

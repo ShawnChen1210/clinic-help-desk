@@ -18,6 +18,9 @@
                 {% if request.user.userprofile.is_verified %}
                 <a class="p-4" href="{% url 'chd_app' %}">Launch App</a>
                 {% endif %}
+                {% if user.is_authenticated and user.is_staff %}
+                    <a class="p-4" href="{% url 'site_settings' %}">Site Settings</a>
+                {% endif %}
             </div>
         
             <div class="flex space-x-4">

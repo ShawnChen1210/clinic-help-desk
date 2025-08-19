@@ -18,6 +18,15 @@ class PrimaryPaymentRole(PolymorphicModel):
     def __str__(self):
         return f"{self.user_profile.user.username} - {self.polymorphic_ctype.name}"
 
+    def get_payroll_dates(self):
+        """
+        Get payroll dates, ensuring we always have at least 'end of month' as default
+        """
+        dates = self.payroll_dates
+        if not dates:
+            return ['end of month']
+        return dates
+
 class HourlyEmployee(PrimaryPaymentRole):
     hourly_wage = models.DecimalField(max_digits=8, decimal_places=2)
 
@@ -51,8 +60,6 @@ class AdditionalPaymentRole(PolymorphicModel):
     )
     description = models.CharField(max_length=255)
 
-    # REMOVED the unique_together constraint that was causing issues
-
 class ProfitSharing(AdditionalPaymentRole):
     sharing_rate = models.DecimalField(max_digits=8, decimal_places=2)
 
@@ -68,3 +75,4 @@ class RevenueSharing(AdditionalPaymentRole):
 
 class HasRent(AdditionalPaymentRole):
     monthly_rent = models.DecimalField(max_digits=8, decimal_places=2)
+

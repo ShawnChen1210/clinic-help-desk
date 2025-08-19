@@ -13,7 +13,7 @@ from datetime import datetime
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from .forms import *
-from .models import UserProfile
+from .models import *
 from .tokens import *
 import re
 # Create your views here.
@@ -119,6 +119,63 @@ def profile(request):
     # Get or create user profile
     profile, created = UserProfile.objects.get_or_create(user=request.user)
 
+    # Helper function to get role details (moved outside to reuse)
+    def get_role_details(role):
+        """Extract role-specific details into a standardized format"""
+        if not role:
+            return {}
+
+        details = {
+            'type': role.__class__.__name__,
+            'payroll_dates': getattr(role, 'payroll_dates', []),
+        }
+
+        # Map role types to their details
+        if hasattr(role, 'hourly_wage'):
+            details['hourly_wage'] = role.hourly_wage
+            details['employment_type'] = 'Employee' if 'Employee' in role.__class__.__name__ else 'Contractor'
+        elif hasattr(role, 'commission_rate'):
+            details['commission_rate'] = role.commission_rate
+            details['employment_type'] = 'Employee' if 'Employee' in role.__class__.__name__ else 'Contractor'
+
+        return details
+
+    # Helper function to get context data (moved outside to reuse)
+    def get_context_data():
+        # Get payment role information for display with specific details
+        primary_role = getattr(profile, 'payment_detail', None)
+        primary_role_details = get_role_details(primary_role)
+
+        # Get additional payment roles with their specific details
+        additional_roles = []
+        for role in profile.additional_roles.all():
+            role_data = {
+                'id': role.id,
+                'type': role.polymorphic_ctype.name,
+                'description': role.description,
+            }
+
+            # Add specific details based on role type
+            if isinstance(role, ProfitSharing):
+                role_data['sharing_rate'] = role.sharing_rate
+                role_data['type_display'] = 'Profit Sharing'
+            elif isinstance(role, RevenueSharing):
+                role_data['sharing_rate'] = role.sharing_rate
+                role_data['target_user'] = role.target_user
+                role_data['type_display'] = 'Revenue Sharing'
+            elif isinstance(role, HasRent):
+                role_data['monthly_rent'] = role.monthly_rent
+                role_data['type_display'] = 'Rent'
+
+            additional_roles.append(role_data)
+
+        return {
+            'profile': profile,
+            'primary_role': primary_role,
+            'primary_role_details': primary_role_details,
+            'additional_roles': additional_roles,
+        }
+
     if request.method == 'POST':
         try:
             # Input validation and sanitization
@@ -130,21 +187,21 @@ def profile(request):
             if not re.match(r'^[a-zA-Z0-9_]{3,150}$', username):
                 messages.error(request,
                                'Username must be 3-150 characters and contain only letters, numbers, and underscores.')
-                return render(request, 'profile.html', {'profile': profile})
+                return render(request, 'profile.html', get_context_data())
 
             # Validate names (letters, spaces, hyphens only)
             if first_name and not re.match(r'^[a-zA-Z\s\-]{1,30}$', first_name):
                 messages.error(request, 'First name can only contain letters, spaces, and hyphens (max 30 chars).')
-                return render(request, 'profile.html', {'profile': profile})
+                return render(request, 'profile.html', get_context_data())
 
             if last_name and not re.match(r'^[a-zA-Z\s\-]{1,30}$', last_name):
                 messages.error(request, 'Last name can only contain letters, spaces, and hyphens (max 30 chars).')
-                return render(request, 'profile.html', {'profile': profile})
+                return render(request, 'profile.html', get_context_data())
 
             # Check if username already exists (excluding current user)
             if User.objects.exclude(pk=request.user.pk).filter(username=username).exists():
                 messages.error(request, 'Username already exists. Please choose a different username.')
-                return render(request, 'profile.html', {'profile': profile})
+                return render(request, 'profile.html', get_context_data())
 
             # Process payroll dates with limits
             billing_dates = request.POST.getlist('billing_dates')
@@ -152,7 +209,7 @@ def profile(request):
             # Limit number of payroll dates
             if len(billing_dates) > 10:
                 messages.error(request, 'Maximum 10 payroll dates allowed.')
-                return render(request, 'profile.html', {'profile': profile})
+                return render(request, 'profile.html', get_context_data())
 
             valid_billing_dates = []
             allowed_strings = ['end of month']
@@ -165,7 +222,7 @@ def profile(request):
                 # Limit string length
                 if len(date_str) > 20:
                     messages.error(request, 'Payroll date entries must be 20 characters or less.')
-                    return render(request, 'profile.html', {'profile': profile})
+                    return render(request, 'profile.html', get_context_data())
 
                 # Check if it's the allowed special string
                 if date_str.lower() == 'end of month':
@@ -178,11 +235,11 @@ def profile(request):
                             valid_billing_dates.append(str(day))
                         else:
                             messages.error(request, f'Day {day} must be between 1 and 28.')
-                            return render(request, 'profile.html', {'profile': profile})
+                            return render(request, 'profile.html', get_context_data())
                     except ValueError:
                         messages.error(request,
-                                       f'Invalid entry: {escape(date_str)}. Use numbers 1-28 or "end of month".')
-                        return render(request, 'profile.html', {'profile': profile})
+                                       f'Invalid entry. Use numbers 1-28 or "end of month".')
+                        return render(request, 'profile.html', get_context_data())
 
             # Update user fields
             request.user.username = username
@@ -204,28 +261,13 @@ def profile(request):
 
         except IntegrityError:
             messages.error(request, 'Username already exists. Please choose a different username.')
+            return render(request, 'profile.html', get_context_data())
         except ValidationError as e:
             messages.error(request, f'Validation error: {str(e)}')
+            return render(request, 'profile.html', get_context_data())
         except Exception as e:
             messages.error(request, 'An unexpected error occurred. Please try again.')
+            return render(request, 'profile.html', get_context_data())
 
-    # Get payment role information for display
-    primary_role = None
-    additional_roles = []
-
-    try:
-        # Get primary payment role
-        primary_role = profile.payment_detail
-    except:
-        primary_role = None
-
-    # Get additional payment roles
-    additional_roles = profile.additional_roles.all()
-
-    context = {
-        'profile': profile,
-        'primary_role': primary_role,
-        'additional_roles': additional_roles,
-    }
-
-    return render(request, 'profile.html', context)
+    # GET request - return the context data
+    return render(request, 'profile.html', get_context_data())

@@ -7,6 +7,7 @@ import UploadFile from './pages/UploadFiles';
 import Analytics from "./pages/Analytics";
 import {AppProviders} from "./context";
 import Members from "./pages/Members";
+import Payroll from "./pages/Payroll";
 import Layout from "./components/organisms/Layout";
 import ExternalRedirect from "./components/atoms/ExternalRedirect";
 import Clinics from "./pages/Clinics";
@@ -24,6 +25,7 @@ function App() {
               <Route path="spreadsheet/:sheet_id" element={<SpreadSheet />}/> {/* Remove leading slash */}
               <Route path="upload" element={<UploadFile />}/>
               <Route path="members" element={<Members />} />
+              <Route path="payroll/:userId" element={<Payroll />} />
             </Route>
           </Route>
           <Route path="/" element={<ExternalRedirect to="/" />} />
