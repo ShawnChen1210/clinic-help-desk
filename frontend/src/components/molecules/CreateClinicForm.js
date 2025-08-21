@@ -33,7 +33,7 @@ export default function CreateClinicForm({ onSubmit, isCreating }) {
       </form>
       {isCreating && (
         <p className="text-sm text-gray-600 mt-2">
-          Creating clinic and 4 Google Sheets... This may take a moment.
+          Creating clinic and Sheets... This may take a moment.
         </p>
       )}
     </div>

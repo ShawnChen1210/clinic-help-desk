@@ -22,7 +22,8 @@ const SpreadsheetNavbar = ({ userData, sheetData }) => {
             'compensation_sales': 'Compensation + Sales',
             'daily_transaction': 'Daily Transaction',
             'transaction_report': 'Transaction Report',
-            'payment_transaction': 'Payment Transaction'
+            'payment_transaction': 'Payment Transaction',
+            'time_hour': 'Hours Report'  // Added 5th sheet type
         };
         return typeLabels[sheet.type] || sheet.label;
     };

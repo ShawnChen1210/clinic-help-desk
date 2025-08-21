@@ -17,7 +17,8 @@ export const ClinicProvider = ({ children }) => {
     compensation_sales_sheet_id: null,
     daily_transaction_sheet_id: null,
     transaction_report_sheet_id: null,
-    payment_transaction_sheet_id: null
+    payment_transaction_sheet_id: null,
+    time_hour_sheet_id: null  // Added 5th sheet
   });
   const [loading, setLoading] = useState(false);
 
@@ -32,7 +33,8 @@ export const ClinicProvider = ({ children }) => {
         compensation_sales_sheet_id: data.compensation_sales_sheet_id,
         daily_transaction_sheet_id: data.daily_transaction_sheet_id,
         transaction_report_sheet_id: data.transaction_report_sheet_id,
-        payment_transaction_sheet_id: data.payment_transaction_sheet_id
+        payment_transaction_sheet_id: data.payment_transaction_sheet_id,
+        time_hour_sheet_id: data.time_hour_sheet_id  // Added 5th sheet
       });
     } catch (error) {
       console.error('Failed to load clinic data:', error);
@@ -47,7 +49,8 @@ export const ClinicProvider = ({ children }) => {
       [sheets.compensation_sales_sheet_id]: { type: 'compensation_sales', label: 'Compensation + Sales Report' },
       [sheets.daily_transaction_sheet_id]: { type: 'daily_transaction', label: 'Daily Transaction Report' },
       [sheets.transaction_report_sheet_id]: { type: 'transaction_report', label: 'Transaction Report' },
-      [sheets.payment_transaction_sheet_id]: { type: 'payment_transaction', label: 'Payment Transaction Report' }
+      [sheets.payment_transaction_sheet_id]: { type: 'payment_transaction', label: 'Payment Transaction Report' },
+      [sheets.time_hour_sheet_id]: { type: 'time_hour', label: 'Hours Report' }  // Added 5th sheet
     };
 
     return sheetTypes[sheetId] || null;

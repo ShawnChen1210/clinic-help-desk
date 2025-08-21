@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payslip</title>
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 20px; background-color: #f5f5f5;">
+    <table style="width: 100%; max-width: 800px; margin: 0 auto; background-color: white; border: 2px solid #333;">
+        <!-- Header -->
+        <tr>
+            <td style="background-color: #f8f9fa; border-bottom: 2px solid #333; padding: 20px; text-align: center;">
+                <div style="font-size: 24px; font-weight: bold; margin-bottom: 5px;">{{ company_name }}</div>
+                <div style="font-size: 14px; color: #666;">{{ company_address }}</div>
+                <table style="width: 100%; margin-top: 15px;">
+                    <tr>
+                        <td style="font-weight: bold;">Pay period ending</td>
+                        <td style="text-align: right; font-weight: bold;">{{ pay_period_end }}</td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+
+        <!-- Employee Information -->
+        <tr>
+            <td style="padding: 20px; border-bottom: 1px solid #ddd;">
+                <div style="font-size: 18px; font-weight: bold; margin-bottom: 10px;">{{ user_name }}</div>
+                <div style="color: #666;">{{ role_type }}</div>
+            </td>
+        </tr>
+
+        <!-- Payroll Details Table -->
+        <tr>
+            <td style="padding: 0;">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <!-- Headers -->
+                    <tr>
+                        <td colspan="2" style="border: 1px solid #333; padding: 8px; text-align: center; background-color: #e9ecef; font-weight: bold;">This Pay Period Earnings</td>
+                        <td style="border: 1px solid #333; padding: 8px; text-align: center; background-color: #e9ecef; font-weight: bold;">YTD Amount</td>
+                        <td style="border: 1px solid #333; padding: 8px; text-align: center; background-color: #e9ecef; font-weight: bold;">This Pay Period Deductions</td>
+                        <td style="border: 1px solid #333; padding: 8px; text-align: center; background-color: #e9ecef; font-weight: bold;">YTD Amount</td>
+                    </tr>
+
+                    <!-- Sub-headers -->
+                    <tr>
+                        <td style="border: 1px solid #333; padding: 8px; background-color: #f8f9fa; font-weight: bold; text-align: center;">Hours</td>
+                        <td style="border: 1px solid #333; padding: 8px; background-color: #f8f9fa; font-weight: bold; text-align: center;">Rate</td>
+                        <td style="border: 1px solid #333; padding: 8px; background-color: #f8f9fa; font-weight: bold; text-align: center;">Amount</td>
+                        <td style="border: 1px solid #333; padding: 8px; background-color: #f8f9fa; font-weight: bold; text-align: center;">Deductions</td>
+                        <td style="border: 1px solid #333; padding: 8px; background-color: #f8f9fa; font-weight: bold; text-align: center;">Amount</td>
+                    </tr>
+
+                    <!-- Salary Row -->
+                    <tr>
+                        <td style="border: 1px solid #333; padding: 8px;">{{ total_hours }}</td>
+                        <td style="border: 1px solid #333; padding: 8px; text-align: right;">${{ hourly_wage }}</td>
+                        <td style="border: 1px solid #333; padding: 8px; text-align: right;">${{ salary_amount }}</td>
+                        <td style="border: 1px solid #333; padding: 8px;">Federal Tax</td>
+                        <td style="border: 1px solid #333; padding: 8px; text-align: right;">${{ federal_tax }}</td>
+                    </tr>
+
+                    <!-- Other rows -->
+                    <tr>
+                        <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
+                        <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
+                        <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
+                        <td style="border: 1px solid #333; padding: 8px;">Provincial Tax</td>
+                        <td style="border: 1px solid #333; padding: 8px; text-align: right;">${{ provincial_tax }}</td>
+                    </tr>
+
+                    <tr>
+                        <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
+                        <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
+                        <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
+                        <td style="border: 1px solid #333; padding: 8px;">CPP</td>
+                        <td style="border: 1px solid #333; padding: 8px; text-align: right;">${{ cpp }}</td>
+                    </tr>
+
+                    <tr>
+                        <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
+                        <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
+                        <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
+                        <td style="border: 1px solid #333; padding: 8px;">EI</td>
+                        <td style="border: 1px solid #333; padding: 8px; text-align: right;">${{ ei }}</td>
+                    </tr>
+
+                    <!-- Total Row -->
+                    <tr>
+                        <td colspan="2" style="border: 1px solid #333; padding: 8px; background-color: #f8f9fa; font-weight: bold;">Total Earnings</td>
+                        <td style="border: 1px solid #333; padding: 8px; text-align: right; background-color: #f8f9fa; font-weight: bold;">${{ total_earnings }}</td>
+                        <td style="border: 1px solid #333; padding: 8px; background-color: #f8f9fa; font-weight: bold;">Total Deductions</td>
+                        <td style="border: 1px solid #333; padding: 8px; text-align: right; background-color: #f8f9fa; font-weight: bold;">${{ total_deductions }}</td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+
+        <!-- Summary Section -->
+        <tr>
+            <td style="padding: 20px; background-color: #f8f9fa; border-top: 2px solid #333;">
+                <table style="width: 100%; margin-bottom: 20px;">
+                    <tr>
+                        <td style="width: 50%; vertical-align: top;">
+                            <table style="width: 100%;">
+                                <tr>
+                                    <td style="padding: 8px; border: 1px solid #ddd; background-color: white;">
+                                        <table style="width: 100%;">
+                                            <tr>
+                                                <td>Total Earnings This Period</td>
+                                                <td style="text-align: right;">${{ total_earnings }}</td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 8px; border: 1px solid #ddd; background-color: white;">
+                                        <table style="width: 100%;">
+                                            <tr>
+                                                <td>Total Deductions This Period</td>
+                                                <td style="text-align: right;">${{ total_deductions }}</td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 8px; border: 1px solid #ddd; background-color: white;">
+                                        <table style="width: 100%;">
+                                            <tr>
+                                                <td>Total Pay Discrepancy from previous pay</td>
+                                                <td style="text-align: right;">$0.00</td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 8px; border: 2px solid #333; background-color: #e9ecef; font-weight: bold; font-size: 16px;">
+                                        <table style="width: 100%;">
+                                            <tr>
+                                                <td>Net Payment This Period</td>
+                                                <td style="text-align: right;">${{ net_payment }}</td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                        <td style="width: 50%; vertical-align: top; padding-left: 20px;">
+                            <table style="width: 100%;">
+                                <tr>
+                                    <td style="padding: 8px; border: 1px solid #ddd; background-color: white;">
+                                        <table style="width: 100%;">
+                                            <tr>
+                                                <td>YTD Earnings</td>
+                                                <td style="text-align: right;">${{ ytd_earnings }}</td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 8px; border: 1px solid #ddd; background-color: white;">
+                                        <table style="width: 100%;">
+                                            <tr>
+                                                <td>YTD Deductions</td>
+                                                <td style="text-align: right;">${{ ytd_deductions }}</td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+
+        <!-- Notes Section -->
+        {% if notes %}
+        <tr>
+            <td style="padding: 20px; border-top: 1px solid #ddd;">
+                <div style="font-weight: bold; margin-bottom: 10px;">Notes</div>
+                <div style="background-color: #f8f9fa; padding: 10px; border: 1px solid #ddd; min-height: 40px;">{{ notes }}</div>
+            </td>
+        </tr>
+        {% endif %}
+
+        <!-- Footer -->
+        <tr>
+            <td style="padding: 20px; text-align: center; border-top: 1px solid #ddd; background-color: #f8f9fa; font-size: 12px; color: #666;">
+                This is an automated payslip. Please keep this for your records.<br>
+                For questions about your pay, please contact HR at clinic.help.desk.app@gmail.com
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

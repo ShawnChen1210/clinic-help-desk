@@ -6,6 +6,8 @@ from polymorphic.models import PolymorphicModel
 class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     is_verified = models.BooleanField(default=False)
+    ytd_pay = models.FloatField(default=0.0)
+    ytd_deduction = models.FloatField(default=0.0)
 
     def __str__(self):
         return str(self.user)

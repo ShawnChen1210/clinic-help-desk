@@ -1,4 +1,3 @@
-// Updated App.js
 import React, { useState, useEffect } from 'react';
 import {BrowserRouter, Routes, Route, Navigate} from 'react-router-dom';
 import SpreadSheet from './pages/Spreadsheet'
@@ -8,6 +7,7 @@ import Analytics from "./pages/Analytics";
 import {AppProviders} from "./context";
 import Members from "./pages/Members";
 import Payroll from "./pages/Payroll";
+import ConfirmPayroll from "./pages/ConfirmPayroll";
 import Layout from "./components/organisms/Layout";
 import ExternalRedirect from "./components/atoms/ExternalRedirect";
 import Clinics from "./pages/Clinics";
@@ -26,6 +26,7 @@ function App() {
               <Route path="upload" element={<UploadFile />}/>
               <Route path="members" element={<Members />} />
               <Route path="payroll/:userId" element={<Payroll />} />
+              <Route path="payroll/:userId/confirm" element={<ConfirmPayroll />} />
             </Route>
           </Route>
           <Route path="/" element={<ExternalRedirect to="/" />} />

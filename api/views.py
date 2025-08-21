@@ -19,6 +19,8 @@ import pandas as pd
 import tempfile
 from django.middleware.csrf import get_token
 from .forms import *
+from django.utils import timezone
+from datetime import datetime
 
 
 # Create your views here.
@@ -73,7 +75,7 @@ class ClinicViewSet(viewsets.ViewSet):
         return user.is_staff or user.is_superuser
 
     def _delete_clinic_sheets(self, clinic):
-        """Delete the 4 Google Sheets for a clinic"""
+        """Delete the 5 Google Sheets for a clinic"""
         try:
             spreadsheets = clinic.spreadsheets
 
@@ -81,7 +83,8 @@ class ClinicViewSet(viewsets.ViewSet):
                 spreadsheets.compensation_sales_sheet_id,
                 spreadsheets.daily_transaction_sheet_id,
                 spreadsheets.transaction_report_sheet_id,
-                spreadsheets.payment_transaction_sheet_id
+                spreadsheets.payment_transaction_sheet_id,
+                spreadsheets.time_hour_sheet_id  # Added 5th sheet
             ]
 
             deleted_count = 0
@@ -104,14 +107,15 @@ class ClinicViewSet(viewsets.ViewSet):
             return 0
 
     def _create_clinic_sheets(self, clinic):
-        """Create the 4 Google Sheets for a clinic"""
+        """Create the 5 Google Sheets for a clinic"""
         try:
             # Define sheet titles
             sheet_titles = {
                 'compensation_sales': f"{clinic.name} - Compensation + Sales Report",
                 'daily_transaction': f"{clinic.name} - Daily Transaction Report",
                 'transaction_report': f"{clinic.name} - Transaction Report",
-                'payment_transaction': f"{clinic.name} - Payment Transaction Report"
+                'payment_transaction': f"{clinic.name} - Payment Transaction Report",
+                'time_hour': f"{clinic.name} - Hours Report"  # Added 5th sheet
             }
 
             # Create each sheet and collect IDs
@@ -130,7 +134,8 @@ class ClinicViewSet(viewsets.ViewSet):
                 'compensation_sales_sheet_id': sheet_ids.get('compensation_sales_sheet_id'),
                 'daily_transaction_sheet_id': sheet_ids.get('daily_transaction_sheet_id'),
                 'transaction_report_sheet_id': sheet_ids.get('transaction_report_sheet_id'),
-                'payment_transaction_sheet_id': sheet_ids.get('payment_transaction_sheet_id')
+                'payment_transaction_sheet_id': sheet_ids.get('payment_transaction_sheet_id'),
+                'time_hour_sheet_id': sheet_ids.get('time_hour_sheet_id')  # Added 5th sheet
             }
 
             clinic_spreadsheet, created = ClinicSpreadsheet.objects.get_or_create(
@@ -195,6 +200,7 @@ class ClinicViewSet(viewsets.ViewSet):
                 'daily_transaction_sheet_id': spreadsheets.daily_transaction_sheet_id,
                 'transaction_report_sheet_id': spreadsheets.transaction_report_sheet_id,
                 'payment_transaction_sheet_id': spreadsheets.payment_transaction_sheet_id,
+                'time_hour_sheet_id': spreadsheets.time_hour_sheet_id,  # Added 5th sheet
                 'created_at': clinic.created_at,
                 'updated_at': clinic.updated_at
             }
@@ -659,12 +665,13 @@ class SpreadsheetViewSet(viewsets.ViewSet):
         Returns the ClinicSpreadsheet object if found, None otherwise
         """
         try:
-            # Check all four possible sheet ID fields
+            # Check all five possible sheet ID fields
             clinic_spreadsheet = ClinicSpreadsheet.objects.filter(
                 models.Q(compensation_sales_sheet_id=sheet_id) |
                 models.Q(daily_transaction_sheet_id=sheet_id) |
                 models.Q(transaction_report_sheet_id=sheet_id) |
-                models.Q(payment_transaction_sheet_id=sheet_id)
+                models.Q(payment_transaction_sheet_id=sheet_id) |
+                models.Q(time_hour_sheet_id=sheet_id)  # Added 5th sheet
             ).first()
 
             return clinic_spreadsheet
@@ -695,6 +702,11 @@ class SpreadsheetViewSet(viewsets.ViewSet):
             return {
                 'name': f"{clinic_spreadsheet.clinic.name} - Payment Transaction Report",
                 'type': 'payment_transaction'
+            }
+        elif clinic_spreadsheet.time_hour_sheet_id == sheet_id:  # Added 5th sheet
+            return {
+                'name': f"{clinic_spreadsheet.clinic.name} - Hours Report",
+                'type': 'time_hour'
             }
         return {'name': 'Unknown Sheet', 'type': 'unknown'}
 
@@ -777,7 +789,8 @@ class SpreadsheetViewSet(viewsets.ViewSet):
             'transaction_report': {'payment date', 'patient_guid', 'applied to'},
             'payment_transaction': {'payment type', 'customer charge', 'jane payments fee'},
             'compensation_sales_compensation': {'commission rate', 'adjustments owed to staff member', 'practitioner'},
-            'compensation_sales_sales': {'location', 'staff member', 'payer', 'collected', 'balance'}
+            'compensation_sales_sales': {'location', 'staff member', 'payer', 'collected', 'balance'},
+            'time_hour': {'staff member', 'start time', 'end time', 'payable time'}  # Added hours report detection
         }
 
         # Check for exact or close matches
@@ -803,6 +816,7 @@ class SpreadsheetViewSet(viewsets.ViewSet):
                 'daily_transaction': clinic_spreadsheet.daily_transaction_sheet_id,
                 'transaction_report': clinic_spreadsheet.transaction_report_sheet_id,
                 'payment_transaction': clinic_spreadsheet.payment_transaction_sheet_id,
+                'time_hour': clinic_spreadsheet.time_hour_sheet_id,  # Added 5th sheet
             }
 
             return field_map.get(sheet_type)
@@ -833,6 +847,12 @@ class SpreadsheetViewSet(viewsets.ViewSet):
                 # Format: "07-21-2025"
                 if 'Payment Date' in df.columns:
                     df['_date_sort'] = pd.to_datetime(df['Payment Date'], format='%m-%d-%Y', errors='coerce')
+                    df = df.sort_values('_date_sort', ascending=False, na_position='last').drop('_date_sort', axis=1)
+
+            elif sheet_type == 'time_hour':  # Added hours report sorting
+                # Sort by Date column from most recent to oldest
+                if 'Date' in df.columns:
+                    df['_date_sort'] = pd.to_datetime(df['Date'], errors='coerce')
                     df = df.sort_values('_date_sort', ascending=False, na_position='last').drop('_date_sort', axis=1)
 
             elif sheet_type == 'compensation_sales':
@@ -929,7 +949,7 @@ class SpreadsheetViewSet(viewsets.ViewSet):
 
                 new_df_copy['_sort_key'] = new_df_copy[existing_merge_col].apply(self.extract_sort_key)
                 result = new_df_copy.sort_values('_sort_key').drop('_sort_key', axis=1)
-                return result
+                return result.fillna('')
 
             # Clean data - replace NaN with empty strings and create copies
             existing_df = existing_df.copy().fillna('')
@@ -985,7 +1005,7 @@ class SpreadsheetViewSet(viewsets.ViewSet):
                 result_data.append(merged_row)
 
             # Create result dataframe
-            result_df = pd.DataFrame(result_data, columns=all_columns)
+            result_df = pd.DataFrame(result_data, columns=all_columns).fillna('')
 
             # Sort by merge column
             result_df['_sort_key'] = result_df[existing_merge_col].apply(self.extract_sort_key)
@@ -1122,7 +1142,7 @@ class SpreadsheetViewSet(viewsets.ViewSet):
                         'sheet_type': sheet_type,
                         'target_sheet_id': target_sheet_id,
                         'headers': df.columns.tolist(),
-                        'preview_data': df.head(5).to_dict(orient='records'),
+                        'preview_data': df.head(5).fillna('').to_dict(orient='records'),
                     })
 
             # Direct upload for other types or first upload
@@ -1260,7 +1280,7 @@ class SpreadsheetViewSet(viewsets.ViewSet):
                 return Response({
                     'success': True,
                     'headers': uploaded_df.columns.tolist(),
-                    'body': uploaded_df.head(5).to_dict(orient='records'),
+                    'body': uploaded_df.head(5).fillna('').to_dict(orient='records'),
                     'sheet_data': sheet_data,
                     'sheet_headers': sheet_headers,
                     'uploaded_merge_column': uploaded_merge_column,
@@ -1295,7 +1315,7 @@ class SpreadsheetViewSet(viewsets.ViewSet):
 
             # Get existing data and merge
             existing_data, existing_headers = padded_google_sheets(sheet_id, 'Sheet1')
-            existing_df = pd.DataFrame(existing_data, columns=existing_headers) if existing_data else pd.DataFrame()
+            existing_df = pd.DataFrame(existing_data, columns=existing_headers).fillna('') if existing_data else pd.DataFrame()
 
             # Use general CSV cleaning method
             uploaded_df = self._clean_csv_file(session_data['temp_file_path'])
@@ -1320,7 +1340,7 @@ class SpreadsheetViewSet(viewsets.ViewSet):
             return Response({
                 'success': True,
                 'merged_headers': merged_df.columns.tolist(),
-                'merged_data': merged_df.to_dict(orient='records'),
+                'merged_data': merged_df.fillna('').to_dict(orient='records'),
                 'merge_strategy': 'Key-based merge with update/insert logic'
             })
 
@@ -1528,11 +1548,7 @@ class PayrollViewSet(viewsets.ViewSet):
 
     @action(detail=True, methods=['get'])
     def get_user(self, request, pk=None):
-        """
-        Get user details for payroll generation
-        URL: /api/payroll/{user_id}/get_user/
-        """
-        # Check if the requesting user has permission to access payroll
+        """Get user details for payroll generation"""
         if not (request.user.is_staff or request.user.is_superuser):
             return Response(
                 {'error': 'You do not have permission to access payroll data'},
@@ -1541,17 +1557,14 @@ class PayrollViewSet(viewsets.ViewSet):
 
         try:
             user = get_object_or_404(User, id=pk)
-            print(f"Found user: {user}")
+            user_profile = user.userprofile
 
-            # Get user profile and payment details
             try:
-                user_profile = user.userprofile
                 payment_detail = getattr(user_profile, 'payment_detail', None)
                 payroll_dates = payment_detail.get_payroll_dates() if payment_detail else ['end of month']
             except:
                 payroll_dates = ['end of month']
 
-            # Get primary role if you have a role system
             primary_role = getattr(user_profile, 'payment_detail', None) if 'user_profile' in locals() else None
             primary_role_name = primary_role.__class__.__name__ if primary_role else None
 
@@ -1571,7 +1584,6 @@ class PayrollViewSet(viewsets.ViewSet):
             return Response(user_data, status=status.HTTP_200_OK)
 
         except Exception as e:
-            print(f"Error in get_user: {str(e)}")
             return Response(
                 {'error': f'Failed to fetch user details: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -1579,11 +1591,7 @@ class PayrollViewSet(viewsets.ViewSet):
 
     @action(detail=True, methods=['post'])
     def generate_payroll(self, request, pk=None):
-        """
-        Generate payroll for a specific user
-        URL: /api/payroll/{user_id}/generate_payroll/
-        """
-        # Check permissions
+        """Generate payroll for a specific user"""
         if not (request.user.is_staff or request.user.is_superuser):
             return Response(
                 {'error': 'You do not have permission to generate payroll'},
@@ -1592,23 +1600,294 @@ class PayrollViewSet(viewsets.ViewSet):
 
         try:
             user = get_object_or_404(User, id=pk)
+            payroll_data = request.data
 
-            # TODO: Implement actual payroll generation logic here
-            payroll_data = {
-                'user_id': user.id,
-                'user_name': f"{user.first_name} {user.last_name}".strip() or user.username,
-                'status': 'generated',
-                'message': 'Payroll generation completed successfully',
-                'generated_at': timezone.now(),
-            }
+            try:
+                user_profile = user.userprofile
+                payment_detail = getattr(user_profile, 'payment_detail', None)
+            except:
+                return Response(
+                    {'error': 'User profile or payment details not found'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
-            return Response(payroll_data, status=status.HTTP_201_CREATED)
+            if not payment_detail:
+                return Response(
+                    {'error': 'No payment role assigned to user'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            role_type = payment_detail.__class__.__name__
+
+            if role_type in ['HourlyContractor', 'HourlyEmployee']:
+                return self._process_hourly_role(user, payment_detail, payroll_data, role_type, request)
+            else:
+                return Response(
+                    {'error': f'Payroll processing for {role_type} not implemented yet'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
         except Exception as e:
             return Response(
                 {'error': f'Failed to generate payroll: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    def _process_hourly_role(self, user, payment_detail, payroll_data, role_type, request):
+        """Process payroll for HourlyContractor and HourlyEmployee"""
+        try:
+            # Parse dates from YYYY-MM-DD format to avoid timezone issues
+            start_date_str = payroll_data['startDate']
+            end_date_str = payroll_data['endDate']
+
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
+
+            hourly_wage = getattr(payment_detail, 'hourly_wage', None)
+            if not hourly_wage:
+                return Response(
+                    {'error': 'Hourly wage not set for this user'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Get clinic_id from request data (frontend will pass it)
+            clinic_id = payroll_data.get('clinic_id')
+            if not clinic_id:
+                return Response(
+                    {'error': 'Clinic ID not provided in request'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Get timesheet ID directly
+            try:
+                clinic = get_object_or_404(Clinic, id=clinic_id)
+                clinic_spreadsheet = ClinicSpreadsheet.objects.filter(clinic=clinic).first()
+
+                if not clinic_spreadsheet or not clinic_spreadsheet.time_hour_sheet_id:
+                    return Response(
+                        {'error': 'Timesheet not configured for this clinic'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                time_sheet_id = clinic_spreadsheet.time_hour_sheet_id
+            except Exception as e:
+                return Response(
+                    {'error': f'Failed to get clinic timesheet: {str(e)}'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            total_hours = self._get_user_hours_from_sheet(time_sheet_id, user, start_date, end_date)
+
+            # Convert Decimal to float for calculation
+            hourly_wage_float = float(hourly_wage)
+            total_earnings = total_hours * hourly_wage_float
+
+            payroll_summary = {
+                'user_id': user.id,
+                'user_name': f"{user.first_name} {user.last_name}".strip() or user.username,
+                'pay_period_start': start_date_str,  # Return as string to avoid timezone conversion
+                'pay_period_end': end_date_str,  # Return as string to avoid timezone conversion
+                'role_type': role_type,
+                'hourly_wage': hourly_wage_float,
+                'total_hours': total_hours,
+                'earnings': {
+                    'salary': total_earnings,
+                    'overtime_pay': 0.00,
+                    'vacation_pay': 0.00,
+                    'sick_leave': 0.00,
+                    'holiday_pay': 0.00,
+                    'bonus_pay': 0.00,
+                },
+                'deductions': {
+                    'federal_tax': 0.00,
+                    'provincial_tax': 0.00,
+                    'cpp': 0.00,
+                    'ei': 0.00,
+                },
+                'totals': {
+                    'total_earnings': total_earnings,
+                    'total_deductions': 0.00,
+                    'net_payment': total_earnings,
+                },
+                'ytd_amounts': {
+                    'earnings': user.userprofile.ytd_pay + total_earnings,
+                    'deductions': user.userprofile.ytd_deduction,
+                }
+            }
+
+            return Response(payroll_summary, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response(
+                {'error': f'Error processing {role_type.lower()} payroll: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=True, methods=['post'])
+    def send_payroll(self, request, pk=None):
+        """Send payroll email and update YTD amounts"""
+        if not (request.user.is_staff or request.user.is_superuser):
+            return Response(
+                {'error': 'You do not have permission to send payroll'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            user = get_object_or_404(User, id=pk)
+            payroll_data = request.data
+
+            # Update YTD amounts
+            try:
+                user_profile = user.userprofile
+                current_earnings = float(payroll_data.get('totals', {}).get('total_earnings', 0))
+                current_deductions = float(payroll_data.get('totals', {}).get('total_deductions', 0))
+                user_profile.ytd_pay += current_earnings
+                user_profile.ytd_deduction += current_deductions
+                user_profile.save()
+            except Exception as e:
+                return Response(
+                    {'error': f'Failed to update YTD amounts: {str(e)}'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Send email
+            try:
+                self._send_payroll_email(user, payroll_data)
+            except Exception as e:
+                print(f"Email sending failed: {str(e)}")
+
+            return Response({
+                'message': 'Payroll sent successfully',
+                'user_id': user.id,
+                'user_name': f"{user.first_name} {user.last_name}".strip() or user.username,
+                'net_payment': payroll_data.get('totals', {}).get('net_payment', 0),
+                'new_ytd_earnings': user_profile.ytd_pay,
+                'new_ytd_deductions': user_profile.ytd_deduction,
+                'sent_at': timezone.now().isoformat()
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to send payroll: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def _send_payroll_email(self, user, payroll_data):
+        """Send payroll email to user using Django template"""
+        try:
+            if not user.email:
+                raise ValueError(f"User {user.username} does not have an email address configured")
+
+            from django.core.mail import send_mail
+            from django.template.loader import render_to_string
+            from django.conf import settings
+
+            subject = f"Payslip for Pay Period Ending {payroll_data.get('pay_period_end', '')}"
+
+            # Format currency values
+            def format_currency(amount):
+                return f"{float(amount or 0):.2f}"
+
+            # Prepare context for template
+            context = {
+                'user': user,
+                'user_name': f"{user.first_name} {user.last_name}".strip() or user.username,
+                'pay_period_start': payroll_data.get('pay_period_start', ''),
+                'pay_period_end': payroll_data.get('pay_period_end', ''),
+                'role_type': payroll_data.get('role_type', ''),
+                'total_hours': payroll_data.get('total_hours', 0),
+                'hourly_wage': format_currency(payroll_data.get('hourly_wage', 0)),
+                'salary_amount': format_currency(payroll_data.get('earnings', {}).get('salary', 0)),
+                'federal_tax': format_currency(payroll_data.get('deductions', {}).get('federal_tax', 0)),
+                'provincial_tax': format_currency(payroll_data.get('deductions', {}).get('provincial_tax', 0)),
+                'cpp': format_currency(payroll_data.get('deductions', {}).get('cpp', 0)),
+                'ei': format_currency(payroll_data.get('deductions', {}).get('ei', 0)),
+                'total_earnings': format_currency(payroll_data.get('totals', {}).get('total_earnings', 0)),
+                'total_deductions': format_currency(payroll_data.get('totals', {}).get('total_deductions', 0)),
+                'net_payment': format_currency(payroll_data.get('totals', {}).get('net_payment', 0)),
+                'ytd_earnings': format_currency(payroll_data.get('ytd_amounts', {}).get('earnings', 0)),
+                'ytd_deductions': format_currency(payroll_data.get('ytd_amounts', {}).get('deductions', 0)),
+                'notes': payroll_data.get('notes', ''),
+                'company_name': 'Alternative Therapy On the Go Inc.',
+                'company_address': '23 - 7330 122nd Street, Surrey, BC V3W 1B4',
+            }
+
+            # Render HTML template
+            html_content = render_to_string('payroll_email.html', context)
+
+            # Send HTML-only email
+            send_mail(
+                subject=subject,
+                message='',  # Empty plain text message
+                from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@example.com'),
+                recipient_list=[user.email],
+                fail_silently=False,
+                html_message=html_content,  # HTML version only
+            )
+
+            print(f"Payroll email sent to {user.email}")
+
+        except Exception as e:
+            print(f"Error sending payroll email: {str(e)}")
+            raise e
+
+    def _get_user_hours_from_sheet(self, sheet_id, user, start_date, end_date):
+        """Fetch user hours from Google Sheet for the specified period"""
+        try:
+            sheet_data = read_google_sheets(sheet_id, "A:I")
+
+            if not sheet_data or len(sheet_data) < 2:
+                print("No data found in timesheet")
+                return 0.0
+
+            headers = sheet_data[0]
+            data_rows = sheet_data[1:]
+            df = pd.DataFrame(data_rows, columns=headers)
+
+            user_full_name = f"{user.first_name} {user.last_name}".strip()
+            user_rows = df[df['Staff member'].str.strip() == user_full_name]
+
+            if user_rows.empty:
+                print(f"No timesheet entries found for user: {user_full_name}")
+                return 0.0
+
+            user_rows = user_rows.copy()
+            user_rows['Date'] = pd.to_datetime(user_rows['Date'], errors='coerce')
+            user_rows = user_rows.dropna(subset=['Date'])
+
+            start_date_naive = start_date.date()
+            end_date_naive = end_date.date()
+
+            period_rows = user_rows[
+                (user_rows['Date'].dt.date >= start_date_naive) &
+                (user_rows['Date'].dt.date <= end_date_naive)
+                ]
+
+            if period_rows.empty:
+                print(
+                    f"No timesheet entries found for user {user_full_name} in period {start_date_naive} to {end_date_naive}")
+                return 0.0
+
+            total_minutes = 0.0
+            for _, row in period_rows.iterrows():
+                try:
+                    minutes_value = row['Payable time (mins)']
+                    if pd.isna(minutes_value) or minutes_value == '':
+                        continue
+                    total_minutes += float(minutes_value)
+                except (ValueError, TypeError) as e:
+                    print(f"Error converting minutes value '{minutes_value}' to float: {e}")
+                    continue
+
+            total_hours = total_minutes / 60.0
+            print(
+                f"Found {len(period_rows)} entries for {user_full_name}: {total_minutes} minutes = {total_hours:.2f} hours")
+
+            return round(total_hours, 2)
+
+        except Exception as e:
+            print(f"Error fetching sheet data: {str(e)}")
+            return 0.0
 
 
 
