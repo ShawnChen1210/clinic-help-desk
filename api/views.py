@@ -360,11 +360,14 @@ class MemberViewSet(viewsets.ViewSet):
             # Get primary role and its data
             primary_role = None
             primary_role_data = {}
+            payment_frequency = 'semi-monthly'  # default
+
             if profile:
                 try:
                     primary_payment_role = profile.payment_detail
                     if primary_payment_role:
                         primary_role = primary_payment_role.polymorphic_ctype.model
+                        payment_frequency = getattr(primary_payment_role, 'payment_frequency', 'semi-monthly')
 
                         # Get the actual role data based on type
                         if hasattr(primary_payment_role, 'hourly_wage'):
@@ -374,7 +377,7 @@ class MemberViewSet(viewsets.ViewSet):
                 except AttributeError:
                     primary_role = None
 
-            # Get additional roles and their data
+            # Get additional roles and their data (existing code remains the same)
             additional_roles = []
             additional_role_data = {}
             if profile:
@@ -411,8 +414,10 @@ class MemberViewSet(viewsets.ViewSet):
                 'last_name': user.last_name,
                 'email': user.email,
                 'is_verified': is_verified,
+                'is_staff': user.is_staff,  # Add this line
                 'primaryRole': primary_role,
                 'primaryRoleData': primary_role_data,
+                'payment_frequency': payment_frequency,  # Add this line
                 'additionalRoles': additional_roles,
                 'additionalRoleData': additional_role_data,
             }
@@ -446,12 +451,16 @@ class MemberViewSet(viewsets.ViewSet):
             primary_role = data.get('primary_role', '')
             additional_roles = data.get('additional_roles', [])
             is_verified = data.get('is_verified', False)
+            is_staff = data.get('is_staff', False)  # Add this line
+            payment_frequency = data.get('payment_frequency', 'semi-monthly')  # Add this line
             primary_role_values = data.get('primaryRoleValues', {})
             additional_role_values = data.get('additionalRoleValues', {})
 
             print(f"Primary role: {primary_role}")
             print(f"Additional roles: {additional_roles}")
             print(f"Is verified: {is_verified}")
+            print(f"Is staff: {is_staff}")  # Add this line
+            print(f"Payment frequency: {payment_frequency}")  # Add this line
 
             with transaction.atomic():
                 print("Step 3: Updating verification status")
@@ -459,33 +468,41 @@ class MemberViewSet(viewsets.ViewSet):
                 profile.save()
                 print("Verification status updated")
 
+                # Update user's staff status
+                print("Step 3.5: Updating staff status")
+                user.is_staff = is_staff
+                user.save()
+                print(f"Staff status updated to: {is_staff}")
+
+                # Store the payment_frequency (either from request or existing)
+                existing_payment_frequency = payment_frequency
                 print("Step 4: Handling primary role deletion")
-                # Delete existing primary role if it exists
                 if hasattr(profile, 'payment_detail') and profile.payment_detail:
                     print(f"Deleting existing primary role: {profile.payment_detail}")
                     try:
                         old_role = profile.payment_detail
+                        # Only preserve existing frequency if no new frequency was provided
+                        if not payment_frequency or payment_frequency == 'semi-monthly':
+                            existing_payment_frequency = getattr(old_role, 'payment_frequency', 'semi-monthly')
+                            print(f"Preserved existing payment frequency: {existing_payment_frequency}")
                         old_role.delete()
                         print("Successfully deleted existing primary role")
-                        # Refresh the profile to clear the cached relationship
                         profile.refresh_from_db()
                     except Exception as e:
                         print(f"Error deleting primary role: {e}")
                         print(f"Traceback: {traceback.format_exc()}")
 
                 print("Step 5: Handling additional roles deletion")
-                # Delete existing additional roles with proper constraint handling
+                # Delete existing additional roles (existing code remains the same)
                 try:
                     existing_additional = profile.additional_roles.all()
                     print(f"Found {existing_additional.count()} existing additional roles")
 
-                    # Delete each role individually to avoid constraint issues
                     for role in existing_additional:
                         print(f"Deleting: {role}")
                         role.delete()
 
                     print("Successfully deleted all existing additional roles")
-                    # Refresh the profile to clear the cached relationship
                     profile.refresh_from_db()
                 except Exception as e:
                     print(f"Error deleting additional roles: {e}")
@@ -518,22 +535,23 @@ class MemberViewSet(viewsets.ViewSet):
                         try:
                             if primary_role in ['hourlyemployee', 'hourlycontractor']:
                                 wage = primary_role_values.get('hourly_wage', 0.00)
-                                print(f"Creating hourly role with wage: {wage}")
+                                print(
+                                    f"Creating hourly role with wage: {wage}, frequency: {existing_payment_frequency}")
                                 role_instance = role_class.objects.create(
                                     user_profile=profile,
                                     hourly_wage=wage,
-                                    payroll_dates=[]
+                                    payment_frequency=existing_payment_frequency,  # Add this line
                                 )
                             elif primary_role in ['commissionemployee', 'commissioncontractor']:
                                 rate = primary_role_values.get('commission_rate', 0.00)
-                                print(f"Creating commission role with rate: {rate}")
+                                print(
+                                    f"Creating commission role with rate: {rate}, frequency: {existing_payment_frequency}")
                                 role_instance = role_class.objects.create(
                                     user_profile=profile,
                                     commission_rate=rate,
-                                    payroll_dates=[]
+                                    payment_frequency=existing_payment_frequency,  # Add this line
                                 )
                             print(f"Successfully created primary role: {role_instance}")
-                            # Refresh to ensure the relationship is properly set
                             profile.refresh_from_db()
                         except Exception as e:
                             print(f"Error creating primary role: {e}")
@@ -543,8 +561,8 @@ class MemberViewSet(viewsets.ViewSet):
                                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
                             )
 
+                # Step 7: Creating new additional roles (existing code remains the same)
                 print("Step 7: Creating new additional roles")
-                # Create new additional roles with application-level constraint checking
                 try:
                     additional_role_classes = {
                         'profitsharing': ProfitSharing,
@@ -566,7 +584,7 @@ class MemberViewSet(viewsets.ViewSet):
                         status=status.HTTP_400_BAD_REQUEST
                     )
 
-                # ONLY create roles that are in the additional_roles list
+                # Create additional roles (existing code continues...)
                 for role_type in additional_roles:
                     print(f"Processing additional role: {role_type}")
                     if role_type in additional_role_classes:
@@ -587,7 +605,6 @@ class MemberViewSet(viewsets.ViewSet):
                                 )
 
                             elif role_type == 'revenuesharing':
-                                # Handle target user lookup
                                 target_user = None
                                 target_username = role_data.get('target_user', '')
                                 print(f"Target username: '{target_username}'")
@@ -1571,11 +1588,11 @@ class PayrollViewSet(viewsets.ModelViewSet):
             # Get payment role details
             payment_detail = getattr(user_profile, 'payment_detail', None)
             primary_role = None
-            payroll_dates = []
+            payment_frequency = 'semi-monthly'  # default
 
             if payment_detail:
                 primary_role = payment_detail.polymorphic_ctype.name
-                payroll_dates = payment_detail.get_payroll_dates()
+                payment_frequency = getattr(payment_detail, 'payment_frequency', 'semi-monthly')
 
             user_data = {
                 'id': user.id,
@@ -1584,7 +1601,7 @@ class PayrollViewSet(viewsets.ModelViewSet):
                 'last_name': user.last_name,
                 'email': user.email,
                 'primaryRole': primary_role,
-                'payroll_dates': payroll_dates,
+                'payment_frequency': payment_frequency,  # Changed from payroll_dates
                 'ytd_pay': user_profile.ytd_pay,
                 'ytd_deduction': user_profile.ytd_deduction,
                 'cpp_contrib': user_profile.cpp_contrib,

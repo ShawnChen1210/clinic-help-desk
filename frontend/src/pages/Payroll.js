@@ -181,6 +181,10 @@ export default function Payroll() {
             <label className="block text-sm font-medium text-gray-700">Primary Role</label>
             <p className="mt-1 text-sm text-gray-900">{user.primaryRole || 'None'}</p>
           </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Payment Frequency</label>
+            <p className="mt-1 text-sm text-gray-900 capitalize">{user.payment_frequency || 'Semi-monthly'}</p>
+          </div>
         </div>
       </div>
 
@@ -188,7 +192,7 @@ export default function Payroll() {
         <h2 className="text-xl font-semibold text-gray-800 mb-6">Payroll Generation</h2>
 
         <PayrollIntervalSelector
-          payrollDates={user?.payroll_dates}
+          paymentFrequency={user?.payment_frequency}
           onIntervalSelect={setSelectedInterval}
           selectedInterval={selectedInterval}
           className="mb-6"

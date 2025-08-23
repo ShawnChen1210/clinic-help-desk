@@ -15,21 +15,23 @@ class UserProfile(models.Model):
         return str(self.user)
 
 class PrimaryPaymentRole(PolymorphicModel):
+    FREQUENCY_CHOICES = [
+        ('weekly', 'Weekly'),
+        ('bi-weekly', 'Bi-weekly'),
+        ('semi-monthly', 'Semi-monthly'),
+        ('monthly', 'Monthly'),
+    ]
+
     # This ensures each user can only have ONE primary payment role
     user_profile = models.OneToOneField(UserProfile, on_delete=models.CASCADE, related_name="payment_detail")
-    payroll_dates = models.JSONField(default=list)
+    payment_frequency = models.CharField(
+        max_length=20,
+        choices=FREQUENCY_CHOICES,
+        default='semi-monthly'
+    )
 
     def __str__(self):
         return f"{self.user_profile.user.username} - {self.polymorphic_ctype.name}"
-
-    def get_payroll_dates(self):
-        """
-        Get payroll dates, ensuring we always have at least 'end of month' as default
-        """
-        dates = self.payroll_dates
-        if not dates:
-            return ['end of month']
-        return dates
 
 class HourlyEmployee(PrimaryPaymentRole):
     hourly_wage = models.DecimalField(max_digits=8, decimal_places=2)

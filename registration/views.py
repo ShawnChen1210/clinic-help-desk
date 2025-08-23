@@ -127,7 +127,7 @@ def profile(request):
 
         details = {
             'type': role.__class__.__name__,
-            'payroll_dates': getattr(role, 'payroll_dates', []),
+            'payment_frequency': getattr(role, 'payment_frequency', 'semi-monthly'),
         }
 
         # Map role types to their details
@@ -182,6 +182,7 @@ def profile(request):
             username = request.POST.get('username', '').strip()
             first_name = request.POST.get('first_name', '').strip()
             last_name = request.POST.get('last_name', '').strip()
+            payment_frequency = request.POST.get('payment_frequency', '').strip()
 
             # Validate username (alphanumeric + underscores only)
             if not re.match(r'^[a-zA-Z0-9_]{3,150}$', username):
@@ -203,53 +204,20 @@ def profile(request):
                 messages.error(request, 'Username already exists. Please choose a different username.')
                 return render(request, 'profile.html', get_context_data())
 
-            # Process payroll dates with limits
-            billing_dates = request.POST.getlist('billing_dates')
-
-            # Limit number of payroll dates
-            if len(billing_dates) > 10:
-                messages.error(request, 'Maximum 10 payroll dates allowed.')
+            # Validate payment frequency
+            valid_frequencies = ['weekly', 'bi-weekly', 'semi-monthly', 'monthly']
+            if payment_frequency and payment_frequency not in valid_frequencies:
+                messages.error(request, 'Invalid payment frequency selected.')
                 return render(request, 'profile.html', get_context_data())
-
-            valid_billing_dates = []
-            allowed_strings = ['end of month']
-
-            for date_str in billing_dates:
-                date_str = date_str.strip()
-                if not date_str:
-                    continue
-
-                # Limit string length
-                if len(date_str) > 20:
-                    messages.error(request, 'Payroll date entries must be 20 characters or less.')
-                    return render(request, 'profile.html', get_context_data())
-
-                # Check if it's the allowed special string
-                if date_str.lower() == 'end of month':
-                    valid_billing_dates.append(date_str.lower())
-                else:
-                    # Validate it's a number between 1-28
-                    try:
-                        day = int(date_str)
-                        if 1 <= day <= 28:
-                            valid_billing_dates.append(str(day))
-                        else:
-                            messages.error(request, f'Day {day} must be between 1 and 28.')
-                            return render(request, 'profile.html', get_context_data())
-                    except ValueError:
-                        messages.error(request,
-                                       f'Invalid entry. Use numbers 1-28 or "end of month".')
-                        return render(request, 'profile.html', get_context_data())
 
             # Update user fields
             request.user.username = username
             request.user.first_name = first_name
             request.user.last_name = last_name
 
-            # Update profile fields - note: changed from billing_dates to payroll_dates
-            # If you want to update the primary payment role's payroll_dates:
-            if hasattr(profile, 'payment_detail') and profile.payment_detail:
-                profile.payment_detail.payroll_dates = valid_billing_dates
+            # Update payment frequency for primary payment role
+            if hasattr(profile, 'payment_detail') and profile.payment_detail and payment_frequency:
+                profile.payment_detail.payment_frequency = payment_frequency
                 profile.payment_detail.save()
 
             # Save changes

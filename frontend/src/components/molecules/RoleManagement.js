@@ -16,10 +16,19 @@ const ADDITIONAL_ROLES = [
   { value: 'hasrent', label: 'Has Rent' },
 ];
 
+const PAYMENT_FREQUENCIES = [
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'bi-weekly', label: 'Bi-weekly' },
+  { value: 'semi-monthly', label: 'Semi-monthly' },
+  { value: 'monthly', label: 'Monthly' },
+];
+
 export default function RoleManagement({ user, onSave, onCancel, isLoading, isOpen }) {
   const [primaryRole, setPrimaryRole] = useState(user.primaryRole || '');
   const [additionalRoles, setAdditionalRoles] = useState(user.additionalRoles || []);
   const [isVerified, setIsVerified] = useState(user.is_verified || false);
+  const [isStaff, setIsStaff] = useState(user.is_staff || false);
+  const [paymentFrequency, setPaymentFrequency] = useState(user.payment_frequency || 'semi-monthly');
 
   // Primary role values
   const [primaryRoleValues, setPrimaryRoleValues] = useState({
@@ -49,6 +58,8 @@ export default function RoleManagement({ user, onSave, onCancel, isLoading, isOp
     setPrimaryRole(user.primaryRole || '');
     setAdditionalRoles(user.additionalRoles || []);
     setIsVerified(user.is_verified || false);
+    setIsStaff(user.is_staff || false);
+    setPaymentFrequency(user.payment_frequency || 'semi-monthly');
 
     setPrimaryRoleValues({
       hourly_wage: user.primaryRoleData?.hourly_wage || '',
@@ -173,6 +184,8 @@ export default function RoleManagement({ user, onSave, onCancel, isLoading, isOp
       primary_role: primaryRole,
       additional_roles: additionalRoles,
       is_verified: isVerified,
+      is_staff: isStaff,
+      payment_frequency: paymentFrequency,
       primaryRoleValues: processedPrimaryRoleValues,
       additionalRoleValues: processedAdditionalRoleValues
     });
@@ -368,6 +381,22 @@ export default function RoleManagement({ user, onSave, onCancel, isLoading, isOp
               {renderPrimaryRoleInputs()}
             </div>
 
+            {/* Payment Frequency Section - only show if user has a primary role */}
+            {primaryRole && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Payment Frequency</label>
+                <Select
+                    options={PAYMENT_FREQUENCIES}
+                    value={paymentFrequency}
+                    onChange={(e) => setPaymentFrequency(e.target.value)}
+                    disabled={isLoading}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Determines how often payroll can be generated for this user
+                </p>
+              </div>
+            )}
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Additional Roles</label>
               <div className="space-y-2">
@@ -392,6 +421,18 @@ export default function RoleManagement({ user, onSave, onCancel, isLoading, isOp
                   label="User is verified (can access dashboard)"
                   disabled={isLoading}
               />
+            </div>
+
+            <div>
+              <Toggle
+                  checked={isStaff}
+                  onChange={(e) => setIsStaff(e.target.checked)}
+                  label="Staff privileges (can manage other users and access admin features)"
+                  disabled={isLoading}
+              />
+              <p className="text-xs text-red-500 mt-1">
+                ⚠️ Staff users can manage roles, generate payroll, and access sensitive features
+              </p>
             </div>
           </div>
 

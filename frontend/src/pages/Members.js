@@ -47,6 +47,8 @@ export default function Members() {
       primary_role: userData.primary_role,
       additional_roles: userData.additional_roles,
       is_verified: userData.is_verified,
+      is_staff: userData.is_staff, // Add this line
+      payment_frequency: userData.payment_frequency,
       primaryRoleValues: userData.primaryRoleValues,
       additionalRoleValues: userData.additionalRoleValues
     });

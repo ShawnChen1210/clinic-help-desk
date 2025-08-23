@@ -68,6 +68,7 @@ export default function UploadForm({ onUploadSuccess, clinicId }) {
                         <li>• <strong>Daily Transaction Reports</strong></li>
                         <li>• <strong>Payment Transaction Reports</strong></li>
                         <li>• <strong>Transaction Reports</strong></li>
+                        <li>• <strong>Hour Time Reports</strong></li>
                     </ul>
                 </div>
 
