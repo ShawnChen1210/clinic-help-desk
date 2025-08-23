@@ -8,6 +8,8 @@ class UserProfile(models.Model):
     is_verified = models.BooleanField(default=False)
     ytd_pay = models.FloatField(default=0.0)
     ytd_deduction = models.FloatField(default=0.0)
+    cpp_contrib = models.FloatField(default=0.0)
+    ei_contrib = models.FloatField(default=0.0)
 
     def __str__(self):
         return str(self.user)

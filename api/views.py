@@ -2,6 +2,7 @@ from datetime import timezone
 
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
+from decimal import Decimal, ROUND_HALF_UP
 from django.contrib import messages
 from rest_framework import viewsets, status
 from rest_framework.decorators import api_view, action
@@ -20,7 +21,7 @@ import tempfile
 from django.middleware.csrf import get_token
 from .forms import *
 from django.utils import timezone
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 # Create your views here.
@@ -46,26 +47,36 @@ def user(request):
     serializer = UserSerializer(request.user)
     return Response(serializer.data)
 
-@login_required(login_url='/registration/login_user/')
-def site_settings_view(request):
-    # Get or create the site settings
-    try:
-        site_settings = SiteSettings.objects.get(pk=1)
-    except SiteSettings.DoesNotExist:
-        site_settings = None
 
-    if request.method == 'POST':
-        form = SiteSettingsForm(request.POST, instance=site_settings)
-        if form.is_valid():
-            form.save()
-            messages.success(request, 'Settings updated successfully!')
-            return redirect('site_settings')
+class SiteSettingsViewSet(viewsets.ModelViewSet):
+    """
+    Simple ViewSet for site settings management.
+    Only staff/superusers can access.
+    """
+    queryset = SiteSettings.objects.all()
+    serializer_class = SiteSettingsSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        """Only allow staff/superusers"""
+        permission_classes = [IsAuthenticated]
+        if not (self.request.user.is_staff or self.request.user.is_superuser):
+            self.permission_denied(self.request, message="Staff privileges required")
+        return [permission() for permission in permission_classes]
+
+    def create(self, request, *args, **kwargs):
+        """Create or update settings (only allow one instance)"""
+        existing = SiteSettings.objects.first()
+        if existing:
+            # Update existing instead of creating new
+            serializer = self.get_serializer(existing, data=request.data)
         else:
-            messages.error(request, 'Please correct the errors below.')
-    else:
-        form = SiteSettingsForm(instance=site_settings)
+            serializer = self.get_serializer(data=request.data)
 
-    return render(request, 'site_settings.html', {'form': form})
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class ClinicViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
@@ -1540,33 +1551,31 @@ class AnalyticsViewSet(viewsets.ViewSet):
             )
 
 
-class PayrollViewSet(viewsets.ViewSet):
-    """
-    ViewSet for handling payroll-related operations
-    """
+class PayrollViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        """Only allow staff/superusers"""
+        permission_classes = [IsAuthenticated]
+        if not (self.request.user.is_staff or self.request.user.is_superuser):
+            self.permission_denied(self.request, message="Staff privileges required")
+        return [permission() for permission in permission_classes]
 
     @action(detail=True, methods=['get'])
     def get_user(self, request, pk=None):
         """Get user details for payroll generation"""
-        if not (request.user.is_staff or request.user.is_superuser):
-            return Response(
-                {'error': 'You do not have permission to access payroll data'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
         try:
             user = get_object_or_404(User, id=pk)
-            user_profile = user.userprofile
+            user_profile = get_object_or_404(UserProfile, user=user)
 
-            try:
-                payment_detail = getattr(user_profile, 'payment_detail', None)
-                payroll_dates = payment_detail.get_payroll_dates() if payment_detail else ['end of month']
-            except:
-                payroll_dates = ['end of month']
+            # Get payment role details
+            payment_detail = getattr(user_profile, 'payment_detail', None)
+            primary_role = None
+            payroll_dates = []
 
-            primary_role = getattr(user_profile, 'payment_detail', None) if 'user_profile' in locals() else None
-            primary_role_name = primary_role.__class__.__name__ if primary_role else None
+            if payment_detail:
+                primary_role = payment_detail.polymorphic_ctype.name
+                payroll_dates = payment_detail.get_payroll_dates()
 
             user_data = {
                 'id': user.id,
@@ -1574,18 +1583,19 @@ class PayrollViewSet(viewsets.ViewSet):
                 'first_name': user.first_name,
                 'last_name': user.last_name,
                 'email': user.email,
-                'is_verified': getattr(user, 'is_verified', False),
-                'primaryRole': primary_role_name,
+                'primaryRole': primary_role,
                 'payroll_dates': payroll_dates,
-                'date_joined': user.date_joined,
-                'is_active': user.is_active,
+                'ytd_pay': user_profile.ytd_pay,
+                'ytd_deduction': user_profile.ytd_deduction,
+                'cpp_contrib': user_profile.cpp_contrib,
+                'ei_contrib': user_profile.ei_contrib,
             }
 
             return Response(user_data, status=status.HTTP_200_OK)
 
         except Exception as e:
             return Response(
-                {'error': f'Failed to fetch user details: {str(e)}'},
+                {'error': f'Failed to get user details: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
@@ -1600,126 +1610,189 @@ class PayrollViewSet(viewsets.ViewSet):
 
         try:
             user = get_object_or_404(User, id=pk)
-            payroll_data = request.data
+            user_profile = get_object_or_404(UserProfile, user=user)
 
+            # Get site settings
+            site_settings = SiteSettings.objects.first()
+            if not site_settings:
+                return Response(
+                    {'error': 'Site settings not configured. Please configure tax rates and brackets first.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Parse request data
+            start_date_str = request.data.get('startDate')
+            end_date_str = request.data.get('endDate')
+            clinic_id = request.data.get('clinic_id')
+
+            if not all([start_date_str, end_date_str, clinic_id]):
+                return Response(
+                    {'error': 'Missing required fields: startDate, endDate, clinic_id'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Parse dates
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+            period_days = (end_date - start_date).days + 1
+
+            # Get user's payment role
+            if not hasattr(user_profile, 'payment_detail'):
+                return Response(
+                    {'error': 'User does not have a payment role configured'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            payment_detail = user_profile.payment_detail
+
+            # Get the clinic and its timesheet sheet ID
             try:
-                user_profile = user.userprofile
-                payment_detail = getattr(user_profile, 'payment_detail', None)
-            except:
+                clinic = get_object_or_404(Clinic, id=clinic_id)
+                clinic_spreadsheet = get_object_or_404(ClinicSpreadsheet, clinic=clinic)
+                timesheet_sheet_id = clinic_spreadsheet.time_hour_sheet_id
+
+                if not timesheet_sheet_id:
+                    return Response(
+                        {'error': f'No timesheet configured for clinic: {clinic.name}'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            except Exception as e:
                 return Response(
-                    {'error': 'User profile or payment details not found'},
+                    {'error': f'Failed to get clinic timesheet configuration: {str(e)}'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-            if not payment_detail:
-                return Response(
-                    {'error': 'No payment role assigned to user'},
-                    status=status.HTTP_400_BAD_REQUEST
+            # Handle different role types
+            if isinstance(payment_detail, HourlyEmployee):
+                # Get daily hours breakdown from timesheet
+                daily_hours = self._get_user_daily_hours_from_sheet(
+                    timesheet_sheet_id, user, start_date, end_date
                 )
 
-            role_type = payment_detail.__class__.__name__
+                total_hours = sum(daily_hours.values())
 
-            if role_type in ['HourlyContractor', 'HourlyEmployee']:
-                return self._process_hourly_role(user, payment_detail, payroll_data, role_type, request)
+                # Calculate overtime and vacation pay
+                overtime_vacation_result = self.calculate_overtime_and_vacation_pay(
+                    daily_hours=daily_hours,
+                    hourly_rate=payment_detail.hourly_wage,
+                    start_date=start_date,
+                    end_date=end_date,
+                    site_settings=site_settings,
+                    user=user,
+                    sheet_id=timesheet_sheet_id
+                )
+
+                regular_pay = overtime_vacation_result['regular_pay']
+                overtime_pay = overtime_vacation_result['overtime_pay']
+                vacation_pay = overtime_vacation_result['vacation_pay']
+                total_earnings_before_tax = regular_pay + overtime_pay + vacation_pay
+
+                # Debug logging
+                print(f"=== PAYROLL DEBUG for {user.first_name} {user.last_name} ===")
+                print(f"Total hours: {round(total_hours, 2)}")
+                print(f"Regular hours: {overtime_vacation_result['regular_hours']}")
+                print(f"Overtime hours: {overtime_vacation_result['overtime_hours']}")
+                print(f"Regular pay: ${regular_pay}")
+                print(f"Overtime pay: ${overtime_pay}")
+                print(f"Vacation pay: ${vacation_pay}")
+                print(f"Vacation rate from settings: {site_settings.vacation_pay_rate}%")
+                print(f"Overtime rate from settings: {site_settings.overtime_pay_rate}x")
+                print(f"Total before tax: ${total_earnings_before_tax}")
+                print("=== END DEBUG ===")
+
+                # Calculate deductions
+                deductions_result = self.calculate_deductions(
+                    total_taxable_income=total_earnings_before_tax,
+                    period_days=period_days,
+                    user_profile=user_profile,
+                    site_settings=site_settings
+                )
+
+                # Prepare payroll data
+                payroll_data = {
+                    'user_id': user.id,
+                    'user_name': f"{user.first_name} {user.last_name}".strip() or user.username,
+                    'pay_period_start': start_date_str,
+                    'pay_period_end': end_date_str,
+                    'role_type': 'Hourly Employee',
+                    'total_hours': round(total_hours, 2),  # Round to 2 decimal places in backend
+                    'hourly_wage': float(payment_detail.hourly_wage),
+                    'earnings': {
+                        'salary': float(regular_pay),  # Regular pay goes in salary field for template
+                        'regular_pay': float(regular_pay),
+                        'overtime_pay': float(overtime_pay),
+                        'vacation_pay': float(vacation_pay),
+                    },
+                    'deductions': deductions_result['deductions'],
+                    'totals': {
+                        'total_earnings': float(total_earnings_before_tax),
+                        'total_deductions': deductions_result['total_deductions'],
+                        'net_payment': float(total_earnings_before_tax) - deductions_result['total_deductions'],
+                    },
+                    'ytd_amounts': {
+                        'earnings': deductions_result['projected_ytd_earnings'],
+                        'deductions': deductions_result['projected_ytd_deductions'],
+                    },
+                    'breakdown': {
+                        'overtime_hours': overtime_vacation_result['overtime_hours'],  # Already rounded in function
+                        'regular_hours': overtime_vacation_result['regular_hours'],  # Already rounded in function
+                        'cpp_ytd_after': deductions_result['cpp_ytd_after'],
+                        'ei_ytd_after': deductions_result['ei_ytd_after'],
+                    }
+                }
+
+                return Response(payroll_data, status=status.HTTP_200_OK)
+
+            elif isinstance(payment_detail, HourlyContractor):
+                # Simple contractor calculation: hours × rate, no deductions
+                total_hours = self._get_user_hours_from_sheet(timesheet_sheet_id, user, start_date, end_date)
+
+                total_pay = float(payment_detail.hourly_wage) * total_hours
+
+                # Prepare payroll data for contractor
+                payroll_data = {
+                    'user_id': user.id,
+                    'user_name': f"{user.first_name} {user.last_name}".strip() or user.username,
+                    'pay_period_start': start_date_str,
+                    'pay_period_end': end_date_str,
+                    'role_type': 'Hourly Contractor',
+                    'total_hours': total_hours,
+                    'hourly_wage': float(payment_detail.hourly_wage),
+                    'earnings': {
+                        'salary': total_pay,  # Total pay goes in salary field for template
+                        'contractor_pay': total_pay,
+                    },
+                    'deductions': {
+                        'federal_tax': 0.0,
+                        'provincial_tax': 0.0,
+                        'cpp': 0.0,
+                        'ei': 0.0,
+                    },
+                    'totals': {
+                        'total_earnings': total_pay,
+                        'total_deductions': 0.0,
+                        'net_payment': total_pay,
+                    },
+                    'ytd_amounts': {
+                        'earnings': float(user_profile.ytd_pay) + total_pay,
+                        'deductions': float(user_profile.ytd_deduction),
+                    },
+                    'breakdown': {
+                        'contractor_hours': total_hours,
+                    }
+                }
+
+                return Response(payroll_data, status=status.HTTP_200_OK)
+
             else:
                 return Response(
-                    {'error': f'Payroll processing for {role_type} not implemented yet'},
+                    {'error': 'Payroll calculation not implemented for this role type yet'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
         except Exception as e:
             return Response(
                 {'error': f'Failed to generate payroll: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-    def _process_hourly_role(self, user, payment_detail, payroll_data, role_type, request):
-        """Process payroll for HourlyContractor and HourlyEmployee"""
-        try:
-            # Parse dates from YYYY-MM-DD format to avoid timezone issues
-            start_date_str = payroll_data['startDate']
-            end_date_str = payroll_data['endDate']
-
-            start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
-            end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
-
-            hourly_wage = getattr(payment_detail, 'hourly_wage', None)
-            if not hourly_wage:
-                return Response(
-                    {'error': 'Hourly wage not set for this user'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            # Get clinic_id from request data (frontend will pass it)
-            clinic_id = payroll_data.get('clinic_id')
-            if not clinic_id:
-                return Response(
-                    {'error': 'Clinic ID not provided in request'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            # Get timesheet ID directly
-            try:
-                clinic = get_object_or_404(Clinic, id=clinic_id)
-                clinic_spreadsheet = ClinicSpreadsheet.objects.filter(clinic=clinic).first()
-
-                if not clinic_spreadsheet or not clinic_spreadsheet.time_hour_sheet_id:
-                    return Response(
-                        {'error': 'Timesheet not configured for this clinic'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-
-                time_sheet_id = clinic_spreadsheet.time_hour_sheet_id
-            except Exception as e:
-                return Response(
-                    {'error': f'Failed to get clinic timesheet: {str(e)}'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            total_hours = self._get_user_hours_from_sheet(time_sheet_id, user, start_date, end_date)
-
-            # Convert Decimal to float for calculation
-            hourly_wage_float = float(hourly_wage)
-            total_earnings = total_hours * hourly_wage_float
-
-            payroll_summary = {
-                'user_id': user.id,
-                'user_name': f"{user.first_name} {user.last_name}".strip() or user.username,
-                'pay_period_start': start_date_str,  # Return as string to avoid timezone conversion
-                'pay_period_end': end_date_str,  # Return as string to avoid timezone conversion
-                'role_type': role_type,
-                'hourly_wage': hourly_wage_float,
-                'total_hours': total_hours,
-                'earnings': {
-                    'salary': total_earnings,
-                    'overtime_pay': 0.00,
-                    'vacation_pay': 0.00,
-                    'sick_leave': 0.00,
-                    'holiday_pay': 0.00,
-                    'bonus_pay': 0.00,
-                },
-                'deductions': {
-                    'federal_tax': 0.00,
-                    'provincial_tax': 0.00,
-                    'cpp': 0.00,
-                    'ei': 0.00,
-                },
-                'totals': {
-                    'total_earnings': total_earnings,
-                    'total_deductions': 0.00,
-                    'net_payment': total_earnings,
-                },
-                'ytd_amounts': {
-                    'earnings': user.userprofile.ytd_pay + total_earnings,
-                    'deductions': user.userprofile.ytd_deduction,
-                }
-            }
-
-            return Response(payroll_summary, status=status.HTTP_200_OK)
-
-        except Exception as e:
-            return Response(
-                {'error': f'Error processing {role_type.lower()} payroll: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
@@ -1741,8 +1814,18 @@ class PayrollViewSet(viewsets.ViewSet):
                 user_profile = user.userprofile
                 current_earnings = float(payroll_data.get('totals', {}).get('total_earnings', 0))
                 current_deductions = float(payroll_data.get('totals', {}).get('total_deductions', 0))
+
+                # Update YTD totals
                 user_profile.ytd_pay += current_earnings
                 user_profile.ytd_deduction += current_deductions
+
+                # Update CPP and EI contributions if available in breakdown
+                breakdown = payroll_data.get('breakdown', {})
+                if 'cpp_ytd_after' in breakdown:
+                    user_profile.cpp_contrib = float(breakdown['cpp_ytd_after'])
+                if 'ei_ytd_after' in breakdown:
+                    user_profile.ei_contrib = float(breakdown['ei_ytd_after'])
+
                 user_profile.save()
             except Exception as e:
                 return Response(
@@ -1772,6 +1855,431 @@ class PayrollViewSet(viewsets.ViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    def calculate_overtime_and_vacation_pay(self, daily_hours, hourly_rate, start_date, end_date, site_settings, user,
+                                            sheet_id):
+        """
+        Calculate overtime and vacation pay for hourly employees
+        Uses week-by-week overtime calculation with backward-looking partial weeks
+        """
+        hourly_rate = Decimal(str(hourly_rate))
+        overtime_multiplier = Decimal(str(site_settings.overtime_pay_rate))
+        vacation_rate = Decimal(str(site_settings.vacation_pay_rate)) / 100
+
+        regular_hours = Decimal('0')
+        overtime_hours = Decimal('0')
+
+        # Get all calendar weeks that intersect with the pay period
+        weeks_to_process = self._get_calendar_weeks_in_period(start_date, end_date)
+
+        for week_info in weeks_to_process:
+            week_start = week_info['week_start']
+            week_end = week_info['week_end']
+            is_partial_start = week_info['is_partial_start']
+            is_partial_end = week_info['is_partial_end']
+
+            # Get hours for this week
+            if is_partial_start:
+                # Look backward to get full week hours
+                full_week_hours = self._get_full_week_hours(
+                    daily_hours, week_start, week_end, start_date, end_date, user, sheet_id
+                )
+                week_hours_in_period = Decimal('0')
+                for check_date in [start_date + timedelta(days=x) for x in range((end_date - start_date).days + 1)]:
+                    if week_start <= check_date <= week_end:
+                        week_hours_in_period += Decimal(str(daily_hours.get(check_date, 0)))
+
+            elif is_partial_end:
+                # Don't look forward - treat as regular hours to avoid double-counting
+                full_week_hours = Decimal('0')
+                week_hours_in_period = Decimal('0')
+                for check_date in [start_date + timedelta(days=x) for x in range((end_date - start_date).days + 1)]:
+                    if week_start <= check_date <= week_end:
+                        week_hours_in_period += Decimal(str(daily_hours.get(check_date, 0)))
+                        full_week_hours += week_hours_in_period  # Same as period hours
+            else:
+                # Full week within period
+                full_week_hours = Decimal('0')
+                week_hours_in_period = Decimal('0')
+                for day_offset in range(7):
+                    check_date = week_start + timedelta(days=day_offset)
+                    hours = Decimal(str(daily_hours.get(check_date, 0)))
+                    full_week_hours += hours
+                    week_hours_in_period += hours
+
+            # Apply overtime logic
+            if full_week_hours > Decimal('40'):
+                # Week has overtime
+                total_overtime_hours = full_week_hours - Decimal('40')
+
+                if is_partial_start:
+                    # Allocate all overtime hours to this payroll (no proportional split)
+                    period_overtime_hours = total_overtime_hours
+                    period_regular_hours = week_hours_in_period - period_overtime_hours
+                    # Ensure we don't have negative regular hours
+                    if period_regular_hours < 0:
+                        period_regular_hours = Decimal('0')
+                        period_overtime_hours = week_hours_in_period
+                else:
+                    # Full week or partial end week
+                    period_overtime_hours = max(Decimal('0'), week_hours_in_period - Decimal('40'))
+                    period_regular_hours = min(week_hours_in_period, Decimal('40'))
+            else:
+                # No overtime this week
+                period_overtime_hours = Decimal('0')
+                period_regular_hours = week_hours_in_period
+
+            regular_hours += period_regular_hours
+            overtime_hours += period_overtime_hours
+
+        # Calculate pay amounts
+        regular_pay = regular_hours * hourly_rate
+        overtime_pay = overtime_hours * hourly_rate * overtime_multiplier
+        total_pay_before_vacation = regular_pay + overtime_pay
+        vacation_pay = total_pay_before_vacation * vacation_rate
+
+        return {
+            'regular_hours': round(float(regular_hours), 2),  # Round in backend
+            'overtime_hours': round(float(overtime_hours), 2),  # Round in backend
+            'regular_pay': regular_pay,
+            'overtime_pay': overtime_pay,
+            'vacation_pay': vacation_pay,
+        }
+
+    def calculate_deductions(self, total_taxable_income, period_days, user_profile, site_settings):
+        """
+        Calculate all deductions: federal tax, provincial tax, CPP, and EI
+        """
+        total_taxable_income = Decimal(str(total_taxable_income))
+        period_days = Decimal(str(period_days))
+
+        # Annualize income for tax calculation
+        daily_income = total_taxable_income / period_days
+        annual_income = daily_income * Decimal('365')
+
+        # Calculate tax brackets
+        federal_tax_annual = self._calculate_tax_brackets(
+            annual_income, site_settings.federal_tax_brackets
+        )
+        provincial_tax_annual = self._calculate_tax_brackets(
+            annual_income, site_settings.provincial_tax_brackets
+        )
+
+        # Pro-rate taxes back to period
+        federal_tax_period = (federal_tax_annual * period_days / Decimal('365')).quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_UP
+        )
+        provincial_tax_period = (provincial_tax_annual * period_days / Decimal('365')).quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_UP
+        )
+
+        # Calculate CPP
+        cpp_exemption_annual = Decimal(str(site_settings.cpp_exemption))
+        cpp_exemption_period = (cpp_exemption_annual * period_days / Decimal('365')).quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_UP
+        )
+
+        cpp_taxable_income = max(Decimal('0'), total_taxable_income - cpp_exemption_period)
+        cpp_deduction_calculated = (cpp_taxable_income * Decimal(str(site_settings.cpp)) / 100).quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_UP
+        )
+
+        # Apply CPP cap
+        cpp_cap = Decimal(str(site_settings.cpp_cap))
+        current_cpp_ytd = Decimal(str(user_profile.cpp_contrib))
+        cpp_remaining_room = max(Decimal('0'), cpp_cap - current_cpp_ytd)
+        cpp_deduction_final = min(cpp_deduction_calculated, cpp_remaining_room)
+
+        # Calculate EI
+        ei_deduction_calculated = (total_taxable_income * Decimal(str(site_settings.ei_ee)) / 100).quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_UP
+        )
+
+        # Apply EI cap
+        ei_cap = Decimal(str(site_settings.ei_cap))
+        current_ei_ytd = Decimal(str(user_profile.ei_contrib))
+        ei_remaining_room = max(Decimal('0'), ei_cap - current_ei_ytd)
+        ei_deduction_final = min(ei_deduction_calculated, ei_remaining_room)
+
+        # Calculate totals
+        total_deductions = float(
+            federal_tax_period + provincial_tax_period + cpp_deduction_final + ei_deduction_final
+        )
+
+        return {
+            'deductions': {
+                'federal_tax': float(federal_tax_period),
+                'provincial_tax': float(provincial_tax_period),
+                'cpp': float(cpp_deduction_final),
+                'ei': float(ei_deduction_final),
+            },
+            'total_deductions': total_deductions,
+            'projected_ytd_earnings': float(Decimal(str(user_profile.ytd_pay)) + total_taxable_income),
+            'projected_ytd_deductions': float(
+                Decimal(str(user_profile.ytd_deduction)) + Decimal(str(total_deductions))),
+            'cpp_ytd_after': float(current_cpp_ytd + cpp_deduction_final),
+            'ei_ytd_after': float(current_ei_ytd + ei_deduction_final),
+        }
+
+    def _calculate_tax_brackets(self, annual_income, tax_brackets):
+        """
+        Calculate progressive tax brackets
+        """
+        if not tax_brackets:
+            return Decimal('0')
+
+        annual_income = Decimal(str(annual_income))
+        total_tax = Decimal('0')
+
+        for bracket in tax_brackets:
+            tax_rate = Decimal(str(bracket['tax_rate'])) / 100
+            min_income = Decimal(str(bracket['min_income']))
+            max_income = Decimal(str(bracket['max_income']))
+
+            if annual_income <= min_income:
+                break
+
+            taxable_in_bracket = min(annual_income, max_income) - min_income
+            if taxable_in_bracket > 0:
+                total_tax += taxable_in_bracket * tax_rate
+
+        return total_tax.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+    def _get_calendar_weeks_in_period(self, start_date, end_date):
+        """
+        Get all calendar weeks that intersect with the pay period
+        Returns list of week info with partial week flags
+        """
+        weeks = []
+        current_date = start_date
+
+        while current_date <= end_date:
+            # Find the start of this week (Monday)
+            week_start = current_date - timedelta(days=current_date.weekday())
+            week_end = week_start + timedelta(days=6)
+
+            # Determine if this week is partial
+            is_partial_start = week_start < start_date
+            is_partial_end = week_end > end_date
+
+            weeks.append({
+                'week_start': week_start,
+                'week_end': week_end,
+                'is_partial_start': is_partial_start,
+                'is_partial_end': is_partial_end,
+            })
+
+            # Move to next week
+            current_date = week_end + timedelta(days=1)
+            if current_date > end_date:
+                break
+
+        return weeks
+
+    def _get_full_week_hours(self, daily_hours, week_start, week_end, period_start, period_end, user, sheet_id):
+        """
+        Get total hours for a full calendar week, including days outside the pay period
+        For partial weeks at the start, this fetches additional timesheet data
+        """
+        total_hours = Decimal('0')
+
+        # Add hours from within the pay period (already have this data)
+        for check_date in [period_start + timedelta(days=x) for x in range((period_end - period_start).days + 1)]:
+            if week_start <= check_date <= week_end:
+                total_hours += Decimal(str(daily_hours.get(check_date, 0)))
+
+        # For dates outside the period but within the week, fetch additional data
+        dates_to_fetch = []
+        for day_offset in range(7):
+            check_date = week_start + timedelta(days=day_offset)
+            if check_date < period_start or check_date > period_end:
+                dates_to_fetch.append(check_date)
+
+        if dates_to_fetch:
+            # Fetch hours for dates outside the pay period
+            additional_hours = self._get_hours_for_specific_dates(sheet_id, user, dates_to_fetch)
+            for date, hours in additional_hours.items():
+                total_hours += Decimal(str(hours))
+
+        return total_hours
+
+    def _get_hours_for_specific_dates(self, sheet_id, user, dates_list):
+        """
+        Fetch user hours from Google Sheet for specific dates
+        Returns: dict with date as key and hours as value
+        """
+        try:
+            if not dates_list:
+                return {}
+
+            sheet_data = read_google_sheets(sheet_id, "A:I")
+
+            if not sheet_data or len(sheet_data) < 2:
+                return {date: 0 for date in dates_list}
+
+            headers = sheet_data[0]
+            data_rows = sheet_data[1:]
+            df = pd.DataFrame(data_rows, columns=headers)
+
+            user_full_name = f"{user.first_name} {user.last_name}".strip()
+            user_rows = df[df['Staff member'].str.strip() == user_full_name]
+
+            if user_rows.empty:
+                return {date: 0 for date in dates_list}
+
+            user_rows = user_rows.copy()
+            user_rows['Date'] = pd.to_datetime(user_rows['Date'], errors='coerce')
+            user_rows = user_rows.dropna(subset=['Date'])
+
+            # Filter for the specific dates
+            target_dates = [pd.Timestamp(date) for date in dates_list]
+            filtered_rows = user_rows[user_rows['Date'].isin(target_dates)]
+
+            # Build hours dictionary
+            hours_dict = {date: 0 for date in dates_list}  # Initialize with 0
+
+            for _, row in filtered_rows.iterrows():
+                try:
+                    date = row['Date'].date()
+                    minutes_value = row['Payable time (mins)']
+
+                    if pd.isna(minutes_value) or minutes_value == '':
+                        continue
+
+                    hours = float(minutes_value) / 60.0
+                    hours_dict[date] = hours_dict.get(date, 0) + hours
+
+                except (ValueError, TypeError) as e:
+                    print(f"Error converting minutes value '{minutes_value}' to float: {e}")
+                    continue
+
+            return hours_dict
+
+        except Exception as e:
+            print(f"Error fetching specific dates data: {str(e)}")
+            return {date: 0 for date in dates_list}
+
+    def _get_user_hours_from_sheet(self, sheet_id, user, start_date, end_date):
+        """
+        Fetch user hours from Google Sheet for the specified period (total hours)
+        Used for contractors who don't need daily breakdown
+        """
+        try:
+            sheet_data = read_google_sheets(sheet_id, "A:I")
+
+            if not sheet_data or len(sheet_data) < 2:
+                print("No data found in timesheet")
+                return 0.0
+
+            headers = sheet_data[0]
+            data_rows = sheet_data[1:]
+            df = pd.DataFrame(data_rows, columns=headers)
+
+            user_full_name = f"{user.first_name} {user.last_name}".strip()
+            user_rows = df[df['Staff member'].str.strip() == user_full_name]
+
+            if user_rows.empty:
+                print(f"No timesheet entries found for user: {user_full_name}")
+                return 0.0
+
+            user_rows = user_rows.copy()
+            user_rows['Date'] = pd.to_datetime(user_rows['Date'], errors='coerce')
+            user_rows = user_rows.dropna(subset=['Date'])
+
+            start_date_naive = start_date.date() if hasattr(start_date, 'date') else start_date
+            end_date_naive = end_date.date() if hasattr(end_date, 'date') else end_date
+
+            period_rows = user_rows[
+                (user_rows['Date'].dt.date >= start_date_naive) &
+                (user_rows['Date'].dt.date <= end_date_naive)
+                ]
+
+            if period_rows.empty:
+                print(
+                    f"No timesheet entries found for user {user_full_name} in period {start_date_naive} to {end_date_naive}")
+                return 0.0
+
+            total_minutes = 0.0
+            for _, row in period_rows.iterrows():
+                try:
+                    minutes_value = row['Payable time (mins)']
+                    if pd.isna(minutes_value) or minutes_value == '':
+                        continue
+                    total_minutes += float(minutes_value)
+                except (ValueError, TypeError) as e:
+                    print(f"Error converting minutes value '{minutes_value}' to float: {e}")
+                    continue
+
+            total_hours = total_minutes / 60.0
+            print(
+                f"Found {len(period_rows)} entries for {user_full_name}: {total_minutes} minutes = {total_hours:.2f} hours")
+
+            return round(total_hours, 2)
+
+        except Exception as e:
+            print(f"Error fetching sheet data: {str(e)}")
+            return 0.0
+
+    def _get_user_daily_hours_from_sheet(self, sheet_id, user, start_date, end_date):
+        """
+        Fetch user hours from Google Sheet broken down by day
+        Returns: dict with date as key and hours as value
+        """
+        try:
+            sheet_data = read_google_sheets(sheet_id, "A:I")
+
+            if not sheet_data or len(sheet_data) < 2:
+                print("No data found in timesheet")
+                return {}
+
+            headers = sheet_data[0]
+            data_rows = sheet_data[1:]
+            df = pd.DataFrame(data_rows, columns=headers)
+
+            user_full_name = f"{user.first_name} {user.last_name}".strip()
+            user_rows = df[df['Staff member'].str.strip() == user_full_name]
+
+            if user_rows.empty:
+                print(f"No timesheet entries found for user: {user_full_name}")
+                return {}
+
+            user_rows = user_rows.copy()
+            user_rows['Date'] = pd.to_datetime(user_rows['Date'], errors='coerce')
+            user_rows = user_rows.dropna(subset=['Date'])
+
+            # Filter for the date range
+            period_rows = user_rows[
+                (user_rows['Date'].dt.date >= start_date) &
+                (user_rows['Date'].dt.date <= end_date)
+                ]
+
+            if period_rows.empty:
+                print(f"No timesheet entries found for user {user_full_name} in period {start_date} to {end_date}")
+                return {}
+
+            # Build daily hours dictionary
+            daily_hours = {}
+            for _, row in period_rows.iterrows():
+                try:
+                    date = row['Date'].date()
+                    minutes_value = row['Payable time (mins)']
+
+                    if pd.isna(minutes_value) or minutes_value == '':
+                        continue
+
+                    hours = float(minutes_value) / 60.0
+                    daily_hours[date] = daily_hours.get(date, 0) + hours
+
+                except (ValueError, TypeError) as e:
+                    print(f"Error converting minutes value '{minutes_value}' to float: {e}")
+                    continue
+
+            print(f"Found daily hours for {user_full_name}: {daily_hours}")
+            return daily_hours
+
+        except Exception as e:
+            print(f"Error fetching sheet data: {str(e)}")
+            return {}
+
     def _send_payroll_email(self, user, payroll_data):
         """Send payroll email to user using Django template"""
         try:
@@ -1788,6 +2296,10 @@ class PayrollViewSet(viewsets.ViewSet):
             def format_currency(amount):
                 return f"{float(amount or 0):.2f}"
 
+            # Get earnings data
+            earnings = payroll_data.get('earnings', {})
+            breakdown = payroll_data.get('breakdown', {})
+
             # Prepare context for template
             context = {
                 'user': user,
@@ -1797,7 +2309,21 @@ class PayrollViewSet(viewsets.ViewSet):
                 'role_type': payroll_data.get('role_type', ''),
                 'total_hours': payroll_data.get('total_hours', 0),
                 'hourly_wage': format_currency(payroll_data.get('hourly_wage', 0)),
-                'salary_amount': format_currency(payroll_data.get('earnings', {}).get('salary', 0)),
+                'salary_amount': format_currency(earnings.get('salary', 0)),
+
+                # Add the missing earnings data
+                'earnings': {
+                    'regular_pay': format_currency(earnings.get('regular_pay', 0)),
+                    'overtime_pay': format_currency(earnings.get('overtime_pay', 0)),
+                    'vacation_pay': format_currency(earnings.get('vacation_pay', 0)),
+                },
+
+                # Add the breakdown data for hours
+                'breakdown': {
+                    'regular_hours': breakdown.get('regular_hours', 0),
+                    'overtime_hours': breakdown.get('overtime_hours', 0),
+                },
+
                 'federal_tax': format_currency(payroll_data.get('deductions', {}).get('federal_tax', 0)),
                 'provincial_tax': format_currency(payroll_data.get('deductions', {}).get('provincial_tax', 0)),
                 'cpp': format_currency(payroll_data.get('deductions', {}).get('cpp', 0)),
@@ -1830,64 +2356,6 @@ class PayrollViewSet(viewsets.ViewSet):
         except Exception as e:
             print(f"Error sending payroll email: {str(e)}")
             raise e
-
-    def _get_user_hours_from_sheet(self, sheet_id, user, start_date, end_date):
-        """Fetch user hours from Google Sheet for the specified period"""
-        try:
-            sheet_data = read_google_sheets(sheet_id, "A:I")
-
-            if not sheet_data or len(sheet_data) < 2:
-                print("No data found in timesheet")
-                return 0.0
-
-            headers = sheet_data[0]
-            data_rows = sheet_data[1:]
-            df = pd.DataFrame(data_rows, columns=headers)
-
-            user_full_name = f"{user.first_name} {user.last_name}".strip()
-            user_rows = df[df['Staff member'].str.strip() == user_full_name]
-
-            if user_rows.empty:
-                print(f"No timesheet entries found for user: {user_full_name}")
-                return 0.0
-
-            user_rows = user_rows.copy()
-            user_rows['Date'] = pd.to_datetime(user_rows['Date'], errors='coerce')
-            user_rows = user_rows.dropna(subset=['Date'])
-
-            start_date_naive = start_date.date()
-            end_date_naive = end_date.date()
-
-            period_rows = user_rows[
-                (user_rows['Date'].dt.date >= start_date_naive) &
-                (user_rows['Date'].dt.date <= end_date_naive)
-                ]
-
-            if period_rows.empty:
-                print(
-                    f"No timesheet entries found for user {user_full_name} in period {start_date_naive} to {end_date_naive}")
-                return 0.0
-
-            total_minutes = 0.0
-            for _, row in period_rows.iterrows():
-                try:
-                    minutes_value = row['Payable time (mins)']
-                    if pd.isna(minutes_value) or minutes_value == '':
-                        continue
-                    total_minutes += float(minutes_value)
-                except (ValueError, TypeError) as e:
-                    print(f"Error converting minutes value '{minutes_value}' to float: {e}")
-                    continue
-
-            total_hours = total_minutes / 60.0
-            print(
-                f"Found {len(period_rows)} entries for {user_full_name}: {total_minutes} minutes = {total_hours:.2f} hours")
-
-            return round(total_hours, 2)
-
-        except Exception as e:
-            print(f"Error fetching sheet data: {str(e)}")
-            return 0.0
 
 
 

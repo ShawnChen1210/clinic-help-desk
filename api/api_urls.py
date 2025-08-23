@@ -10,6 +10,7 @@ router.register(r'analytics', AnalyticsViewSet, basename='analytics')
 router.register(r'members', MemberViewSet, basename='members')
 router.register(r'clinics', ClinicViewSet, basename='clinic')
 router.register(r'payroll', PayrollViewSet, basename='payroll')
+router.register(r'site-settings', SiteSettingsViewSet, basename='site-settings')
 
 urlpatterns = [
     path('csrf/', get_csrf, name='get_csrf'),

@@ -3,3 +3,4 @@ from .models import *
 # Register your models here.
 admin.site.register(Clinic)
 admin.site.register(ClinicSpreadsheet)
+admin.site.register(SiteSettings)

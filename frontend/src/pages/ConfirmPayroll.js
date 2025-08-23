@@ -18,7 +18,10 @@ export default function ConfirmPayroll() {
 
   useEffect(() => {
     if (location.state?.payrollData) {
-      setPayrollData(location.state.payrollData);
+      const data = location.state.payrollData;
+      setPayrollData(data);
+
+
     } else {
       navigate(`/chd-app/${clinic_id}/payroll/${userId}`);
     }
@@ -47,6 +50,7 @@ export default function ConfirmPayroll() {
 
       if (response.status === 200) {
         alert(`Payroll sent successfully! ${payrollData.user_name} will receive an email with their payslip.`);
+        console.log(payrollPayload.earnings.vacation_pay)
         navigate(`/chd-app/${clinic_id}/members`);
       }
     } catch (error) {

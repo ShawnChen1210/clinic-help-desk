@@ -8,6 +8,7 @@ import {AppProviders} from "./context";
 import Members from "./pages/Members";
 import Payroll from "./pages/Payroll";
 import ConfirmPayroll from "./pages/ConfirmPayroll";
+import SiteSettings from "./pages/SiteSettings"; // Add this import
 import Layout from "./components/organisms/Layout";
 import ExternalRedirect from "./components/atoms/ExternalRedirect";
 import Clinics from "./pages/Clinics";
@@ -27,7 +28,9 @@ function App() {
               <Route path="members" element={<Members />} />
               <Route path="payroll/:userId" element={<Payroll />} />
               <Route path="payroll/:userId/confirm" element={<ConfirmPayroll />} />
+              <Route path="settings" element={<SiteSettings />} /> {/* Add this route */}
             </Route>
+            <Route path="settings" element={<SiteSettings />} />
           </Route>
           <Route path="/" element={<ExternalRedirect to="/" />} />
         </Routes>

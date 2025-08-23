@@ -1,7 +1,9 @@
 import React from 'react';
 import {useDateFormatter} from "../../hooks/useDateFormatter";
+
 export default function PayrollSummaryTable({ payrollData, companyInfo, className = "" }) {
   const { formatDateString } = useDateFormatter()
+
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-CA', {
       style: 'currency',
@@ -13,6 +15,10 @@ export default function PayrollSummaryTable({ payrollData, companyInfo, classNam
   const formatDate = (dateString) => {
     return new Date(dateString).toLocaleDateString('en-CA');
   };
+
+  // Determine which pay types to show
+  const showOvertimePay = (payrollData.breakdown?.overtime_hours > 0) || (payrollData.earnings?.overtime_pay > 0);
+  const showVacationPay = payrollData.earnings?.vacation_pay > 0;
 
   return (
     <div className={`bg-white border border-gray-300 ${className}`}>
@@ -45,105 +51,153 @@ export default function PayrollSummaryTable({ payrollData, companyInfo, classNam
       </div>
 
       {/* Main Payroll Table */}
-      <div className="grid grid-cols-4 text-sm">
-        {/* Headers */}
+      <div className="grid grid-cols-2 text-sm">
+        {/* Main Headers */}
         <div className="bg-gray-100 border-b border-r border-gray-300 p-2 font-medium text-center">
           This Pay Period Earnings
         </div>
-        <div className="bg-gray-100 border-b border-r border-gray-300 p-2 font-medium text-center">
-          YTD Amount
-        </div>
-        <div className="bg-gray-100 border-b border-r border-gray-300 p-2 font-medium text-center">
-          This Pay Period Deductions
-        </div>
         <div className="bg-gray-100 border-b border-gray-300 p-2 font-medium text-center">
-          YTD Amount
+          This Pay Period Deductions
         </div>
 
         {/* Sub-headers */}
-        <div className="grid grid-cols-3 col-span-1 border-r border-gray-300">
-          <div className="bg-gray-50 border-b border-r border-gray-300 p-2 text-xs font-medium text-center">Pay</div>
+        <div className="grid grid-cols-4 col-span-1 border-r border-gray-300">
+          <div className="bg-gray-50 border-b border-r border-gray-300 p-2 text-xs font-medium text-center">Pay Type</div>
           <div className="bg-gray-50 border-b border-r border-gray-300 p-2 text-xs font-medium text-center">Hours</div>
-          <div className="bg-gray-50 border-b border-gray-300 p-2 text-xs font-medium text-center">Rate</div>
+          <div className="bg-gray-50 border-b border-r border-gray-300 p-2 text-xs font-medium text-center">Rate</div>
+          <div className="bg-gray-50 border-b border-gray-300 p-2 text-xs font-medium text-center">Amount</div>
         </div>
-        <div className="bg-gray-50 border-b border-r border-gray-300 p-2 text-xs font-medium text-center">Amount</div>
-        <div className="bg-gray-50 border-b border-r border-gray-300 p-2 text-xs font-medium text-center">Deductions</div>
-        <div className="bg-gray-50 border-b border-gray-300 p-2 text-xs font-medium text-center">Amount</div>
+        <div className="grid grid-cols-2 col-span-1">
+          <div className="bg-gray-50 border-b border-r border-gray-300 p-2 text-xs font-medium text-center">Deductions</div>
+          <div className="bg-gray-50 border-b border-gray-300 p-2 text-xs font-medium text-center">Amount</div>
+        </div>
 
-        {/* Salary Row */}
-        <div className="grid grid-cols-3 col-span-1 border-r border-gray-300">
-          <div className="border-b border-r border-gray-300 p-2 text-xs">Salary</div>
+        {/* Regular Pay Row */}
+        <div className="grid grid-cols-4 col-span-1 border-r border-gray-300">
+          <div className="border-b border-r border-gray-300 p-2 text-xs">Regular Pay</div>
           <div className="border-b border-r border-gray-300 p-2 text-xs text-right">
-            {payrollData.total_hours || '0.00'}
+            {payrollData.breakdown?.regular_hours || payrollData.total_hours || '0.00'}
           </div>
-          <div className="border-b border-gray-300 p-2 text-xs text-right">
+          <div className="border-b border-r border-gray-300 p-2 text-xs text-right">
             {payrollData.hourly_wage ? formatCurrency(payrollData.hourly_wage) : ''}
           </div>
+          <div className="border-b border-gray-300 p-2 text-xs text-right">
+            {formatCurrency(payrollData.earnings?.regular_pay || payrollData.earnings?.salary)}
+          </div>
         </div>
-        <div className="border-b border-r border-gray-300 p-2 text-xs text-right">
-          {formatCurrency(payrollData.earnings?.salary)}
-        </div>
-        <div className="border-b border-r border-gray-300 p-2 text-xs">Federal Tax</div>
-        <div className="border-b border-gray-300 p-2 text-xs text-right">
-          {formatCurrency(payrollData.deductions?.federal_tax)}
+        <div className="grid grid-cols-2 col-span-1">
+          <div className="border-b border-r border-gray-300 p-2 text-xs">Federal Tax</div>
+          <div className="border-b border-gray-300 p-2 text-xs text-right">
+            {formatCurrency(payrollData.deductions?.federal_tax)}
+          </div>
         </div>
 
-        {/* Other earnings rows (empty for HourlyContractor) */}
-        {['Overtime Pay', 'Vacation Pay', 'Sick Leave', 'Holiday Pay', 'Bonus Pay'].map((item, index) => (
-          <React.Fragment key={item}>
-            <div className="grid grid-cols-3 col-span-1 border-r border-gray-300">
-              <div className="border-b border-r border-gray-300 p-2 text-xs">{item}</div>
-              <div className="border-b border-r border-gray-300 p-2 text-xs text-right">0.00</div>
-              <div className="border-b border-gray-300 p-2 text-xs text-right"></div>
+        {/* Overtime Pay Row (only show if exists) */}
+        {showOvertimePay && (
+          <>
+            <div className="grid grid-cols-4 col-span-1 border-r border-gray-300">
+              <div className="border-b border-r border-gray-300 p-2 text-xs">Overtime Pay</div>
+              <div className="border-b border-r border-gray-300 p-2 text-xs text-right">
+                {payrollData.breakdown?.overtime_hours || '0.00'}
+              </div>
+              <div className="border-b border-r border-gray-300 p-2 text-xs text-right">
+                {formatCurrency((payrollData.hourly_wage || 0) * 1.5)}
+              </div>
+              <div className="border-b border-gray-300 p-2 text-xs text-right">
+                {formatCurrency(payrollData.earnings?.overtime_pay)}
+              </div>
             </div>
-            <div className="border-b border-r border-gray-300 p-2 text-xs text-right">
-              {formatCurrency(0)}
+            <div className="grid grid-cols-2 col-span-1">
+              <div className="border-b border-r border-gray-300 p-2 text-xs">Provincial Tax</div>
+              <div className="border-b border-gray-300 p-2 text-xs text-right">
+                {formatCurrency(payrollData.deductions?.provincial_tax)}
+              </div>
             </div>
-            {index === 0 && (
-              <>
-                <div className="border-b border-r border-gray-300 p-2 text-xs">Provincial Tax</div>
-                <div className="border-b border-gray-300 p-2 text-xs text-right">
-                  {formatCurrency(payrollData.deductions?.provincial_tax)}
-                </div>
-              </>
-            )}
-            {index === 1 && (
-              <>
-                <div className="border-b border-r border-gray-300 p-2 text-xs">CPP</div>
-                <div className="border-b border-gray-300 p-2 text-xs text-right">
-                  {formatCurrency(payrollData.deductions?.cpp)}
-                </div>
-              </>
-            )}
-            {index === 2 && (
-              <>
-                <div className="border-b border-r border-gray-300 p-2 text-xs">EI</div>
-                <div className="border-b border-gray-300 p-2 text-xs text-right">
-                  {formatCurrency(payrollData.deductions?.ei)}
-                </div>
-              </>
-            )}
-            {index > 2 && (
-              <>
-                <div className="border-b border-r border-gray-300 p-2 text-xs"></div>
-                <div className="border-b border-gray-300 p-2 text-xs text-right"></div>
-              </>
-            )}
-          </React.Fragment>
-        ))}
+          </>
+        )}
+
+        {/* Vacation Pay Row (only show if exists) */}
+        {showVacationPay && (
+          <>
+            <div className="grid grid-cols-4 col-span-1 border-r border-gray-300">
+              <div className="border-b border-r border-gray-300 p-2 text-xs">Vacation Pay</div>
+              <div className="border-b border-r border-gray-300 p-2 text-xs text-right">-</div>
+              <div className="border-b border-r border-gray-300 p-2 text-xs text-right">-</div>
+              <div className="border-b border-gray-300 p-2 text-xs text-right">
+                {formatCurrency(payrollData.earnings?.vacation_pay)}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 col-span-1">
+              <div className="border-b border-r border-gray-300 p-2 text-xs">CPP</div>
+              <div className="border-b border-gray-300 p-2 text-xs text-right">
+                {formatCurrency(payrollData.deductions?.cpp)}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* If no overtime pay shown, show Provincial Tax in empty row */}
+        {!showOvertimePay && (
+          <>
+            <div className="grid grid-cols-4 col-span-1 border-r border-gray-300">
+              <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
+              <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
+              <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
+              <div className="border-b border-gray-300 p-2 text-xs">&nbsp;</div>
+            </div>
+            <div className="grid grid-cols-2 col-span-1">
+              <div className="border-b border-r border-gray-300 p-2 text-xs">Provincial Tax</div>
+              <div className="border-b border-gray-300 p-2 text-xs text-right">
+                {formatCurrency(payrollData.deductions?.provincial_tax)}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* If no vacation pay shown, show CPP in empty row */}
+        {!showVacationPay && (
+          <>
+            <div className="grid grid-cols-4 col-span-1 border-r border-gray-300">
+              <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
+              <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
+              <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
+              <div className="border-b border-gray-300 p-2 text-xs">&nbsp;</div>
+            </div>
+            <div className="grid grid-cols-2 col-span-1">
+              <div className="border-b border-r border-gray-300 p-2 text-xs">CPP</div>
+              <div className="border-b border-gray-300 p-2 text-xs text-right">
+                {formatCurrency(payrollData.deductions?.cpp)}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* EI Row */}
+        <div className="grid grid-cols-4 col-span-1 border-r border-gray-300">
+          <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
+          <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
+          <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
+          <div className="border-b border-gray-300 p-2 text-xs">&nbsp;</div>
+        </div>
+        <div className="grid grid-cols-2 col-span-1">
+          <div className="border-b border-r border-gray-300 p-2 text-xs">EI</div>
+          <div className="border-b border-gray-300 p-2 text-xs text-right">
+            {formatCurrency(payrollData.deductions?.ei)}
+          </div>
+        </div>
 
         {/* Total Earnings Row */}
-        <div className="grid grid-cols-3 col-span-1 border-r border-gray-300 bg-gray-50">
-          <div className="border-b border-r border-gray-300 p-2 text-xs font-bold">Total Earnings</div>
-          <div className="border-b border-r border-gray-300 p-2 text-xs"></div>
-          <div className="border-b border-gray-300 p-2 text-xs"></div>
+        <div className="grid grid-cols-4 col-span-1 border-r border-gray-300 bg-gray-50">
+          <div className="border-b border-r border-gray-300 p-2 text-xs font-bold" style={{ gridColumn: '1 / 4' }}>Total Earnings</div>
+          <div className="border-b border-gray-300 p-2 text-xs text-right font-bold">
+            {formatCurrency(payrollData.totals?.total_earnings)}
+          </div>
         </div>
-        <div className="border-b border-r border-gray-300 p-2 text-xs text-right font-bold bg-gray-50">
-          {formatCurrency(payrollData.totals?.total_earnings)}
-        </div>
-        <div className="border-b border-r border-gray-300 p-2 text-xs font-bold bg-gray-50">Total Deductions</div>
-        <div className="border-b border-gray-300 p-2 text-xs text-right font-bold bg-gray-50">
-          {formatCurrency(payrollData.totals?.total_deductions)}
+        <div className="grid grid-cols-2 col-span-1 bg-gray-50">
+          <div className="border-b border-r border-gray-300 p-2 text-xs font-bold">Total Deductions</div>
+          <div className="border-b border-gray-300 p-2 text-xs text-right font-bold">
+            {formatCurrency(payrollData.totals?.total_deductions)}
+          </div>
         </div>
       </div>
 
@@ -158,7 +212,7 @@ export default function PayrollSummaryTable({ payrollData, companyInfo, classNam
           </div>
           <div className="p-2">
             <div className="flex justify-between">
-              <span className="font-medium">YTD Amount</span>
+              <span className="font-medium">YTD Earnings</span>
               <span>{formatCurrency(payrollData.ytd_amounts?.earnings)}</span>
             </div>
           </div>
@@ -173,7 +227,7 @@ export default function PayrollSummaryTable({ payrollData, companyInfo, classNam
           </div>
           <div className="p-2">
             <div className="flex justify-between">
-              <span className="font-medium">YTD Amount</span>
+              <span className="font-medium">YTD Deductions</span>
               <span>{formatCurrency(payrollData.ytd_amounts?.deductions)}</span>
             </div>
           </div>

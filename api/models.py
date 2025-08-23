@@ -65,8 +65,13 @@ class SheetColumnPreference(models.Model):
         return f"{self.user.username}'s preference for {self.sheet_id}"
 
 class SiteSettings(models.Model):
-    gst = models.DecimalField(max_digits=8, decimal_places=4)
-    pst = models.DecimalField(max_digits=8, decimal_places=4)
-    cpp = models.DecimalField(max_digits=8, decimal_places=4)
-    ei_ee = models.DecimalField(max_digits=8, decimal_places=4)
-    ei_er = models.DecimalField(max_digits=8, decimal_places=4)
+    federal_tax_brackets = models.JSONField(default=list, help_text="Federal income tax brackets")
+    provincial_tax_brackets = models.JSONField(default=list, help_text="Provincial income tax brackets")
+    cpp = models.DecimalField(max_digits=8, decimal_places=3)
+    cpp_exemption = models.DecimalField(max_digits=8, decimal_places=3)
+    cpp_cap = models.DecimalField(max_digits=8, decimal_places=3)
+    ei_ee = models.DecimalField(max_digits=8, decimal_places=3)
+    ei_er = models.DecimalField(max_digits=8, decimal_places=3)
+    ei_cap = models.DecimalField(max_digits=8, decimal_places=3)
+    vacation_pay_rate = models.DecimalField(max_digits=8, decimal_places=3)
+    overtime_pay_rate = models.DecimalField(max_digits=8, decimal_places=3)
