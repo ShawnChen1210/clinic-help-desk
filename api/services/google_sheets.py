@@ -1,4 +1,4 @@
-from help_desk.utils import *
+from ..utils import *
 from clinic_help_desk.settings import *
 import csv
 

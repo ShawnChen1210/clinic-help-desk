@@ -14,7 +14,6 @@ import traceback
 from django.db import transaction
 import re
 from api.serializers import *
-from help_desk.models import *
 from .services.google_sheets import *
 import pandas as pd
 import tempfile
