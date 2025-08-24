@@ -71,10 +71,6 @@ const SpreadsheetNavbar = ({ userData, sheetData }) => {
 
                 {/* Action Buttons */}
                 <LinkButton
-                    text="Upload CSV"
-                    link={`/chd-app/${clinic_id}/spreadsheet/${sheet_id}/upload`}
-                />
-                <LinkButton
                     text="Open In Google Sheets"
                     link={`https://docs.google.com/spreadsheets/d/${sheet_id}`}
                     newTab={true}

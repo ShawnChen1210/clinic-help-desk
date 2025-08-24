@@ -15,7 +15,7 @@ class Clinic(models.Model):
 class ClinicSpreadsheet(models.Model):
     clinic = models.OneToOneField(Clinic, on_delete=models.CASCADE, related_name='spreadsheets')
 
-    # The 4 sheet IDs
+    # The sheet IDs
     compensation_sales_sheet_id = models.CharField(max_length=255, null=True, blank=True)
     daily_transaction_sheet_id = models.CharField(max_length=255, null=True, blank=True)
     transaction_report_sheet_id = models.CharField(max_length=255, null=True, blank=True)

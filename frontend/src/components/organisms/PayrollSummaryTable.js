@@ -12,13 +12,15 @@ export default function PayrollSummaryTable({ payrollData, companyInfo, classNam
     }).format(amount || 0);
   };
 
-  const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString('en-CA');
-  };
+  // Determine payroll type
+  const isCommissionBased = payrollData.role_type?.includes('Commission') || false;
+  const isHourlyBased = payrollData.role_type?.includes('Hourly') || false;
+  const isEmployee = payrollData.role_type?.includes('Employee') || false;
 
-  // Determine which pay types to show
-  const showOvertimePay = (payrollData.breakdown?.overtime_hours > 0) || (payrollData.earnings?.overtime_pay > 0);
-  const showVacationPay = payrollData.earnings?.vacation_pay > 0;
+  // Determine which pay types to show for hourly employees
+  const showOvertimePay = isHourlyBased && ((payrollData.breakdown?.overtime_hours > 0) || (payrollData.earnings?.overtime_pay > 0));
+  const showVacationPay = (isHourlyBased && payrollData.earnings?.vacation_pay > 0) ||
+                         (isCommissionBased && isEmployee && payrollData.earnings?.vacation_pay > 0);
 
   return (
     <div className={`bg-white border border-gray-300 ${className}`}>
@@ -44,8 +46,8 @@ export default function PayrollSummaryTable({ payrollData, companyInfo, classNam
             <p className="text-sm text-gray-900">{payrollData.user_name}</p>
           </div>
           <div>
-            <span className="text-sm font-medium text-gray-700">Address</span>
-            <p className="text-sm text-gray-900">&nbsp;</p>
+            <span className="text-sm font-medium text-gray-700">Role</span>
+            <p className="text-sm text-gray-900">{payrollData.role_type}</p>
           </div>
         </div>
       </div>
@@ -61,134 +63,214 @@ export default function PayrollSummaryTable({ payrollData, companyInfo, classNam
         </div>
 
         {/* Sub-headers */}
-        <div className="grid grid-cols-4 col-span-1 border-r border-gray-300">
-          <div className="bg-gray-50 border-b border-r border-gray-300 p-2 text-xs font-medium text-center">Pay Type</div>
-          <div className="bg-gray-50 border-b border-r border-gray-300 p-2 text-xs font-medium text-center">Hours</div>
-          <div className="bg-gray-50 border-b border-r border-gray-300 p-2 text-xs font-medium text-center">Rate</div>
+        <div
+            className={`grid ${isCommissionBased ? 'grid-cols-3' : 'grid-cols-4'} col-span-1 border-r border-gray-300`}>
+          <div className="bg-gray-50 border-b border-r border-gray-300 p-2 text-xs font-medium text-center">
+            {isCommissionBased ? 'Income Type' : 'Pay Type'}
+          </div>
+          <div className="bg-gray-50 border-b border-r border-gray-300 p-2 text-xs font-medium text-center">
+            {isCommissionBased ? 'Commission Rate' : 'Hours'}
+          </div>
+          {!isCommissionBased && (
+              <div
+                  className="bg-gray-50 border-b border-r border-gray-300 p-2 text-xs font-medium text-center">Rate</div>
+          )}
           <div className="bg-gray-50 border-b border-gray-300 p-2 text-xs font-medium text-center">Amount</div>
         </div>
         <div className="grid grid-cols-2 col-span-1">
-          <div className="bg-gray-50 border-b border-r border-gray-300 p-2 text-xs font-medium text-center">Deductions</div>
+          <div className="bg-gray-50 border-b border-r border-gray-300 p-2 text-xs font-medium text-center">Deductions
+          </div>
           <div className="bg-gray-50 border-b border-gray-300 p-2 text-xs font-medium text-center">Amount</div>
         </div>
 
-        {/* Regular Pay Row */}
-        <div className="grid grid-cols-4 col-span-1 border-r border-gray-300">
-          <div className="border-b border-r border-gray-300 p-2 text-xs">Regular Pay</div>
-          <div className="border-b border-r border-gray-300 p-2 text-xs text-right">
-            {payrollData.breakdown?.regular_hours || payrollData.total_hours || '0.00'}
-          </div>
-          <div className="border-b border-r border-gray-300 p-2 text-xs text-right">
-            {payrollData.hourly_wage ? formatCurrency(payrollData.hourly_wage) : ''}
-          </div>
-          <div className="border-b border-gray-300 p-2 text-xs text-right">
-            {formatCurrency(payrollData.earnings?.regular_pay || payrollData.earnings?.salary)}
-          </div>
+        {/* First Row - Primary Income */}
+        <div
+            className={`grid ${isCommissionBased ? 'grid-cols-3' : 'grid-cols-4'} col-span-1 border-r border-gray-300`}>
+          {isCommissionBased ? (
+              <>
+                <div className="border-b border-r border-gray-300 p-2 text-xs">Gross Income (GST Included)</div>
+                <div className="border-b border-r border-gray-300 p-2 text-xs text-right">
+                  {(payrollData.commission_rate * 100)}%
+                </div>
+                <div className="border-b border-gray-300 p-2 text-xs text-right">
+                  {formatCurrency(payrollData.earnings?.gross_income)}
+                </div>
+              </>
+          ) : (
+              <>
+                <div className="border-b border-r border-gray-300 p-2 text-xs">Regular Pay</div>
+                <div className="border-b border-r border-gray-300 p-2 text-xs text-right">
+                  {payrollData.breakdown?.regular_hours || payrollData.total_hours || '0.00'}
+                </div>
+                <div className="border-b border-r border-gray-300 p-2 text-xs text-right">
+                  {payrollData.hourly_wage ? formatCurrency(payrollData.hourly_wage) : ''}
+                </div>
+                <div className="border-b border-gray-300 p-2 text-xs text-right">
+                  {formatCurrency(payrollData.earnings?.regular_pay || payrollData.earnings?.salary)}
+                </div>
+              </>
+          )}
         </div>
         <div className="grid grid-cols-2 col-span-1">
-          <div className="border-b border-r border-gray-300 p-2 text-xs">Federal Tax</div>
+          <div className="border-b border-r border-gray-300 p-2 text-xs">
+            {isCommissionBased ? 'Commission Deduction' : 'Federal Tax'}
+          </div>
           <div className="border-b border-gray-300 p-2 text-xs text-right">
-            {formatCurrency(payrollData.deductions?.federal_tax)}
+            {isCommissionBased ?
+                formatCurrency(payrollData.deductions?.commission_deduction) :
+                formatCurrency(payrollData.deductions?.federal_tax)
+            }
           </div>
         </div>
 
-        {/* Overtime Pay Row (only show if exists) */}
-        {showOvertimePay && (
-          <>
-            <div className="grid grid-cols-4 col-span-1 border-r border-gray-300">
-              <div className="border-b border-r border-gray-300 p-2 text-xs">Overtime Pay</div>
-              <div className="border-b border-r border-gray-300 p-2 text-xs text-right">
-                {payrollData.breakdown?.overtime_hours || '0.00'}
-              </div>
-              <div className="border-b border-r border-gray-300 p-2 text-xs text-right">
-                {formatCurrency((payrollData.hourly_wage || 0) * 1.5)}
-              </div>
-              <div className="border-b border-gray-300 p-2 text-xs text-right">
-                {formatCurrency(payrollData.earnings?.overtime_pay)}
-              </div>
-            </div>
-            <div className="grid grid-cols-2 col-span-1">
-              <div className="border-b border-r border-gray-300 p-2 text-xs">Provincial Tax</div>
-              <div className="border-b border-gray-300 p-2 text-xs text-right">
-                {formatCurrency(payrollData.deductions?.provincial_tax)}
-              </div>
-            </div>
-          </>
-        )}
+        {/* Second Row */}
+        <div
+            className={`grid ${isCommissionBased ? 'grid-cols-3' : 'grid-cols-4'} col-span-1 border-r border-gray-300`}>
+          {isCommissionBased ? (
+              <>
+                <div className="border-b border-r border-gray-300 p-2 text-xs">GST</div>
+                <div className="border-b border-r border-gray-300 p-2 text-xs text-right">-</div>
+                <div className="border-b border-gray-300 p-2 text-xs text-right">
+                  {formatCurrency(payrollData.earnings?.tax_gst)}
+                </div>
+              </>
+          ) : showOvertimePay ? (
+              <>
+                <div className="border-b border-r border-gray-300 p-2 text-xs">Overtime Pay</div>
+                <div className="border-b border-r border-gray-300 p-2 text-xs text-right">
+                  {payrollData.breakdown?.overtime_hours || '0.00'}
+                </div>
+                <div className="border-b border-r border-gray-300 p-2 text-xs text-right">
+                  {formatCurrency((payrollData.hourly_wage || 0) * 1.5)}
+                </div>
+                <div className="border-b border-gray-300 p-2 text-xs text-right">
+                  {formatCurrency(payrollData.earnings?.overtime_pay)}
+                </div>
+              </>
+          ) : (
+              <>
+                <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
+                <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
+                <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
+                <div className="border-b border-gray-300 p-2 text-xs">&nbsp;</div>
+              </>
+          )}
+        </div>
+        <div className="grid grid-cols-2 col-span-1">
+          <div className="border-b border-r border-gray-300 p-2 text-xs">
+            {isCommissionBased ? 'POS Fees' : 'Provincial Tax'}
+          </div>
+          <div className="border-b border-gray-300 p-2 text-xs text-right">
+            {isCommissionBased ?
+                formatCurrency(payrollData.deductions?.pos_fees || payrollData.earnings?.pos_fees) :
+                formatCurrency(payrollData.deductions?.provincial_tax)
+            }
+          </div>
+        </div>
 
-        {/* Vacation Pay Row (only show if exists) */}
-        {showVacationPay && (
-          <>
-            <div className="grid grid-cols-4 col-span-1 border-r border-gray-300">
+        {/* Third Row - Vacation Pay or Empty */}
+        <div className={`grid ${isCommissionBased ? 'grid-cols-3' : 'grid-cols-4'} col-span-1 border-r border-gray-300`}>
+          {showVacationPay ? (
+            <>
               <div className="border-b border-r border-gray-300 p-2 text-xs">Vacation Pay</div>
-              <div className="border-b border-r border-gray-300 p-2 text-xs text-right">-</div>
-              <div className="border-b border-r border-gray-300 p-2 text-xs text-right">-</div>
-              <div className="border-b border-gray-300 p-2 text-xs text-right">
-                {formatCurrency(payrollData.earnings?.vacation_pay)}
-              </div>
-            </div>
-            <div className="grid grid-cols-2 col-span-1">
-              <div className="border-b border-r border-gray-300 p-2 text-xs">CPP</div>
-              <div className="border-b border-gray-300 p-2 text-xs text-right">
-                {formatCurrency(payrollData.deductions?.cpp)}
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* If no overtime pay shown, show Provincial Tax in empty row */}
-        {!showOvertimePay && (
-          <>
-            <div className="grid grid-cols-4 col-span-1 border-r border-gray-300">
+              {isCommissionBased ? (
+                <>
+                  <div className="border-b border-r border-gray-300 p-2 text-xs text-right">-</div>
+                  <div className="border-b border-gray-300 p-2 text-xs text-right">
+                    {formatCurrency(payrollData.earnings?.vacation_pay)}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="border-b border-r border-gray-300 p-2 text-xs text-right">-</div>
+                  <div className="border-b border-r border-gray-300 p-2 text-xs text-right">-</div>
+                  <div className="border-b border-gray-300 p-2 text-xs text-right">
+                    {formatCurrency(payrollData.earnings?.vacation_pay)}
+                  </div>
+                </>
+              )}
+            </>
+          ) : (
+            <>
               <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
               <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
-              <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
+              {!isCommissionBased && <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>}
               <div className="border-b border-gray-300 p-2 text-xs">&nbsp;</div>
-            </div>
-            <div className="grid grid-cols-2 col-span-1">
-              <div className="border-b border-r border-gray-300 p-2 text-xs">Provincial Tax</div>
-              <div className="border-b border-gray-300 p-2 text-xs text-right">
-                {formatCurrency(payrollData.deductions?.provincial_tax)}
-              </div>
-            </div>
-          </>
-        )}
+            </>
+          )}
+        </div>
+        <div className="grid grid-cols-2 col-span-1">
+          <div className="border-b border-r border-gray-300 p-2 text-xs">
+            {isCommissionBased && isEmployee ? 'Federal Tax' : 'CPP'}
+          </div>
+          <div className="border-b border-gray-300 p-2 text-xs text-right">
+            {isCommissionBased && isEmployee ?
+              formatCurrency(payrollData.deductions?.federal_tax) :
+              formatCurrency(payrollData.deductions?.cpp)
+            }
+          </div>
+        </div>
 
-        {/* If no vacation pay shown, show CPP in empty row */}
-        {!showVacationPay && (
-          <>
-            <div className="grid grid-cols-4 col-span-1 border-r border-gray-300">
-              <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
-              <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
-              <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
-              <div className="border-b border-gray-300 p-2 text-xs">&nbsp;</div>
-            </div>
-            <div className="grid grid-cols-2 col-span-1">
-              <div className="border-b border-r border-gray-300 p-2 text-xs">CPP</div>
-              <div className="border-b border-gray-300 p-2 text-xs text-right">
-                {formatCurrency(payrollData.deductions?.cpp)}
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* EI Row */}
-        <div className="grid grid-cols-4 col-span-1 border-r border-gray-300">
+        {/* Fourth Row - Empty or Additional Deductions */}
+        <div className={`grid ${isCommissionBased ? 'grid-cols-3' : 'grid-cols-4'} col-span-1 border-r border-gray-300`}>
           <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
           <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
-          <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
+          {!isCommissionBased && <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>}
           <div className="border-b border-gray-300 p-2 text-xs">&nbsp;</div>
         </div>
         <div className="grid grid-cols-2 col-span-1">
-          <div className="border-b border-r border-gray-300 p-2 text-xs">EI</div>
+          <div className="border-b border-r border-gray-300 p-2 text-xs">
+            {isCommissionBased && isEmployee ? 'Provincial Tax' : 'EI'}
+          </div>
           <div className="border-b border-gray-300 p-2 text-xs text-right">
-            {formatCurrency(payrollData.deductions?.ei)}
+            {isCommissionBased && isEmployee ?
+              formatCurrency(payrollData.deductions?.provincial_tax) :
+              formatCurrency(payrollData.deductions?.ei)
+            }
           </div>
         </div>
 
+        {/* Fifth Row - CPP for Commission Employees */}
+        {isCommissionBased && isEmployee && (
+          <>
+            <div className={`grid grid-cols-3 col-span-1 border-r border-gray-300`}>
+              <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
+              <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
+              <div className="border-b border-gray-300 p-2 text-xs">&nbsp;</div>
+            </div>
+            <div className="grid grid-cols-2 col-span-1">
+              <div className="border-b border-r border-gray-300 p-2 text-xs">CPP</div>
+              <div className="border-b border-gray-300 p-2 text-xs text-right">
+                {formatCurrency(payrollData.deductions?.cpp)}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Sixth Row - EI for Commission Employees */}
+        {isCommissionBased && isEmployee && (
+          <>
+            <div className={`grid grid-cols-3 col-span-1 border-r border-gray-300`}>
+              <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
+              <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
+              <div className="border-b border-gray-300 p-2 text-xs">&nbsp;</div>
+            </div>
+            <div className="grid grid-cols-2 col-span-1">
+              <div className="border-b border-r border-gray-300 p-2 text-xs">EI</div>
+              <div className="border-b border-gray-300 p-2 text-xs text-right">
+                {formatCurrency(payrollData.deductions?.ei)}
+              </div>
+            </div>
+          </>
+        )}
+
         {/* Total Earnings Row */}
-        <div className="grid grid-cols-4 col-span-1 border-r border-gray-300 bg-gray-50">
-          <div className="border-b border-r border-gray-300 p-2 text-xs font-bold" style={{ gridColumn: '1 / 4' }}>Total Earnings</div>
+        <div
+            className={`grid ${isCommissionBased ? 'grid-cols-3' : 'grid-cols-4'} col-span-1 border-r border-gray-300 bg-gray-50`}>
+          <div
+              className={`border-b border-r border-gray-300 p-2 text-xs font-bold ${isCommissionBased ? 'col-span-2' : 'col-span-3'}`}>Total
+            Earnings
+          </div>
           <div className="border-b border-gray-300 p-2 text-xs text-right font-bold">
             {formatCurrency(payrollData.totals?.total_earnings)}
           </div>

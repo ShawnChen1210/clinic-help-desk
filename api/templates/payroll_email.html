@@ -35,77 +35,131 @@
                 <table style="width: 100%; border-collapse: collapse;">
                     <!-- Headers -->
                     <tr>
-                        <td colspan="4" style="border: 1px solid #333; padding: 8px; text-align: center; background-color: #e9ecef; font-weight: bold;">This Pay Period Earnings</td>
+                        <td colspan="3" style="border: 1px solid #333; padding: 8px; text-align: center; background-color: #e9ecef; font-weight: bold;">This Pay Period Earnings</td>
                         <td colspan="2" style="border: 1px solid #333; padding: 8px; text-align: center; background-color: #e9ecef; font-weight: bold;">This Pay Period Deductions</td>
                     </tr>
 
                     <!-- Sub-headers -->
                     <tr>
-                        <td style="border: 1px solid #333; padding: 8px; background-color: #f8f9fa; font-weight: bold; text-align: center;">Pay Type</td>
-                        <td style="border: 1px solid #333; padding: 8px; background-color: #f8f9fa; font-weight: bold; text-align: center;">Hours</td>
+                        <td style="border: 1px solid #333; padding: 8px; background-color: #f8f9fa; font-weight: bold; text-align: center;">
+                            {% if "Commission" in role_type %}Income Type{% else %}Pay Type{% endif %}
+                        </td>
+                        <td style="border: 1px solid #333; padding: 8px; background-color: #f8f9fa; font-weight: bold; text-align: center;">
+                            {% if "Commission" in role_type %}Commission Rate{% else %}Hours{% endif %}
+                        </td>
+                        {% if "Commission" not in role_type %}
                         <td style="border: 1px solid #333; padding: 8px; background-color: #f8f9fa; font-weight: bold; text-align: center;">Rate</td>
+                        {% endif %}
                         <td style="border: 1px solid #333; padding: 8px; background-color: #f8f9fa; font-weight: bold; text-align: center;">Amount</td>
                         <td style="border: 1px solid #333; padding: 8px; background-color: #f8f9fa; font-weight: bold; text-align: center;">Deductions</td>
                         <td style="border: 1px solid #333; padding: 8px; background-color: #f8f9fa; font-weight: bold; text-align: center;">Amount</td>
                     </tr>
 
-                    <!-- Regular Pay Row -->
+                    <!-- First Row - Primary Income -->
                     <tr>
-                        <td style="border: 1px solid #333; padding: 8px;">Regular Pay</td>
-                        <td style="border: 1px solid #333; padding: 8px;">{{ breakdown.regular_hours|default:total_hours }}</td>
-                        <td style="border: 1px solid #333; padding: 8px; text-align: right;">${{ hourly_wage }}</td>
-                        <td style="border: 1px solid #333; padding: 8px; text-align: right;">${{ earnings.regular_pay|default:salary_amount }}</td>
-                        <td style="border: 1px solid #333; padding: 8px;">Federal Tax</td>
-                        <td style="border: 1px solid #333; padding: 8px; text-align: right;">${{ federal_tax }}</td>
-                    </tr>
-
-                    <!-- Overtime Pay Row -->
-                    <tr>
-                        {% if earnings.overtime_pay and earnings.overtime_pay != "0.00" %}
-                        <td style="border: 1px solid #333; padding: 8px;">Overtime Pay</td>
-                        <td style="border: 1px solid #333; padding: 8px;">{{ breakdown.overtime_hours|default:"0.00" }}</td>
-                        <td style="border: 1px solid #333; padding: 8px; text-align: right;">${{ hourly_wage }}×1.5</td>
-                        <td style="border: 1px solid #333; padding: 8px; text-align: right;">${{ earnings.overtime_pay }}</td>
+                        {% if "Commission" in role_type %}
+                            <td style="border: 1px solid #333; padding: 8px;">Gross Income (GST Included)</td>
+                            <td style="border: 1px solid #333; padding: 8px;">{{ commission_rate }}</td>
+                            <td style="border: 1px solid #333; padding: 8px; text-align: right;">${{ gross_income }}</td>
                         {% else %}
-                        <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
-                        <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
-                        <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
-                        <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
+                            <td style="border: 1px solid #333; padding: 8px;">Regular Pay</td>
+                            <td style="border: 1px solid #333; padding: 8px;">{{ breakdown.regular_hours|default:total_hours }}</td>
+                            <td style="border: 1px solid #333; padding: 8px; text-align: right;">${{ hourly_wage }}</td>
+                            <td style="border: 1px solid #333; padding: 8px; text-align: right;">${{ earnings.regular_pay|default:salary_amount }}</td>
                         {% endif %}
-                        <td style="border: 1px solid #333; padding: 8px;">Provincial Tax</td>
-                        <td style="border: 1px solid #333; padding: 8px; text-align: right;">${{ provincial_tax }}</td>
+                        <td style="border: 1px solid #333; padding: 8px;">
+                            {% if "Commission" in role_type %}Commission Deduction{% else %}Federal Tax{% endif %}
+                        </td>
+                        <td style="border: 1px solid #333; padding: 8px; text-align: right;">
+                            {% if "Commission" in role_type %}${{ commission_deduction }}{% else %}${{ federal_tax }}{% endif %}
+                        </td>
                     </tr>
 
-                    <!-- Vacation Pay Row -->
+                    <!-- Second Row -->
+                    <tr>
+                        {% if "Commission" in role_type %}
+                            <td style="border: 1px solid #333; padding: 8px;">GST</td>
+                            <td style="border: 1px solid #333; padding: 8px;">-</td>
+                            <td style="border: 1px solid #333; padding: 8px; text-align: right;">${{ tax_gst }}</td>
+                        {% elif earnings.overtime_pay and earnings.overtime_pay != "0.00" %}
+                            <td style="border: 1px solid #333; padding: 8px;">Overtime Pay</td>
+                            <td style="border: 1px solid #333; padding: 8px;">{{ breakdown.overtime_hours|default:"0.00" }}</td>
+                            <td style="border: 1px solid #333; padding: 8px; text-align: right;">${{ hourly_wage }}×1.5</td>
+                            <td style="border: 1px solid #333; padding: 8px; text-align: right;">${{ earnings.overtime_pay }}</td>
+                        {% else %}
+                            <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
+                            <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
+                            {% if "Commission" not in role_type %}<td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>{% endif %}
+                            <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
+                        {% endif %}
+                        <td style="border: 1px solid #333; padding: 8px;">
+                            {% if "Commission" in role_type %}POS Fees{% else %}Provincial Tax{% endif %}
+                        </td>
+                        <td style="border: 1px solid #333; padding: 8px; text-align: right;">
+                            {% if "Commission" in role_type %}${{ pos_fees }}{% else %}${{ provincial_tax }}{% endif %}
+                        </td>
+                    </tr>
+
+                    <!-- Third Row - Vacation Pay -->
                     <tr>
                         {% if earnings.vacation_pay and earnings.vacation_pay != "0.00" %}
-                        <td style="border: 1px solid #333; padding: 8px;">Vacation Pay</td>
-                        <td style="border: 1px solid #333; padding: 8px;">-</td>
-                        <td style="border: 1px solid #333; padding: 8px; text-align: right;">-</td>
-                        <td style="border: 1px solid #333; padding: 8px; text-align: right;">${{ earnings.vacation_pay }}</td>
+                            <td style="border: 1px solid #333; padding: 8px;">Vacation Pay</td>
+                            <td style="border: 1px solid #333; padding: 8px;">-</td>
+                            {% if "Commission" not in role_type %}<td style="border: 1px solid #333; padding: 8px; text-align: right;">-</td>{% endif %}
+                            <td style="border: 1px solid #333; padding: 8px; text-align: right;">${{ earnings.vacation_pay }}</td>
                         {% else %}
-                        <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
-                        <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
-                        <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
-                        <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
+                            <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
+                            <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
+                            {% if "Commission" not in role_type %}<td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>{% endif %}
+                            <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
                         {% endif %}
+                        <td style="border: 1px solid #333; padding: 8px;">
+                            {% if "Commission" in role_type and "Employee" in role_type %}Federal Tax{% else %}CPP{% endif %}
+                        </td>
+                        <td style="border: 1px solid #333; padding: 8px; text-align: right;">
+                            {% if "Commission" in role_type and "Employee" in role_type %}${{ federal_tax }}{% else %}${{ cpp }}{% endif %}
+                        </td>
+                    </tr>
+
+                    <!-- Fourth Row - Additional Deductions -->
+                    <tr>
+                        <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
+                        <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
+                        {% if "Commission" not in role_type %}<td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>{% endif %}
+                        <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
+                        <td style="border: 1px solid #333; padding: 8px;">
+                            {% if "Commission" in role_type and "Employee" in role_type %}Provincial Tax{% else %}EI{% endif %}
+                        </td>
+                        <td style="border: 1px solid #333; padding: 8px; text-align: right;">
+                            {% if "Commission" in role_type and "Employee" in role_type %}${{ provincial_tax }}{% else %}${{ ei }}{% endif %}
+                        </td>
+                    </tr>
+
+                    <!-- Fifth Row - CPP for Commission Employees -->
+                    {% if "Commission" in role_type and "Employee" in role_type %}
+                    <tr>
+                        <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
+                        <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
+                        <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
                         <td style="border: 1px solid #333; padding: 8px;">CPP</td>
                         <td style="border: 1px solid #333; padding: 8px; text-align: right;">${{ cpp }}</td>
                     </tr>
+                    {% endif %}
 
-                    <!-- EI Row -->
+                    <!-- Sixth Row - EI for Commission Employees -->
+                    {% if "Commission" in role_type and "Employee" in role_type %}
                     <tr>
-                        <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
                         <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
                         <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
                         <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
                         <td style="border: 1px solid #333; padding: 8px;">EI</td>
                         <td style="border: 1px solid #333; padding: 8px; text-align: right;">${{ ei }}</td>
                     </tr>
+                    {% endif %}
 
                     <!-- Total Row -->
                     <tr>
-                        <td colspan="3" style="border: 1px solid #333; padding: 8px; background-color: #f8f9fa; font-weight: bold;">Total Earnings</td>
+                        <td colspan="{% if 'Commission' in role_type %}2{% else %}3{% endif %}" style="border: 1px solid #333; padding: 8px; background-color: #f8f9fa; font-weight: bold;">Total Earnings</td>
                         <td style="border: 1px solid #333; padding: 8px; text-align: right; background-color: #f8f9fa; font-weight: bold;">${{ total_earnings }}</td>
                         <td style="border: 1px solid #333; padding: 8px; background-color: #f8f9fa; font-weight: bold;">Total Deductions</td>
                         <td style="border: 1px solid #333; padding: 8px; text-align: right; background-color: #f8f9fa; font-weight: bold;">${{ total_deductions }}</td>
@@ -113,6 +167,102 @@
                 </table>
             </td>
         </tr>
+
+        <!-- Commission Breakdown Section (only show for commission-based roles) -->
+        {% if "Commission" in role_type %}
+        <tr>
+            <td style="padding: 20px; background-color: #f0f8ff; border-top: 1px solid #ddd;">
+                <div style="font-weight: bold; margin-bottom: 15px; color: #2c5aa0;">Commission Breakdown</div>
+                <table style="width: 100%; font-size: 14px;">
+                    <tr>
+                        <td style="padding: 5px 0; width: 60%;">Commission Rate:</td>
+                        <td style="text-align: right; font-weight: bold;">{{ commission_rate }}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 5px 0;">Adjusted Total (before tax):</td>
+                        <td style="text-align: right;">${{ adjusted_total }}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 5px 0;">GST:</td>
+                        <td style="text-align: right;">${{ tax_gst }}</td>
+                    </tr>
+                    <tr style="border-top: 1px solid #ccc;">
+                        <td style="padding: 5px 0; font-weight: bold;">Gross Income:</td>
+                        <td style="text-align: right; font-weight: bold;">${{ gross_income }}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 5px 0; color: #d32f2f;">Less: Commission Deduction:</td>
+                        <td style="text-align: right; color: #d32f2f;">-${{ commission_deduction }}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 5px 0; color: #d32f2f;">Less: POS Processing Fees:</td>
+                        <td style="text-align: right; color: #d32f2f;">-${{ pos_fees }}</td>
+                    </tr>
+                    {% if earnings.vacation_pay and earnings.vacation_pay != "0.00" %}
+                    <tr>
+                        <td style="padding: 5px 0; color: #2e7d32;">Plus: Vacation Pay:</td>
+                        <td style="text-align: right; color: #2e7d32;">+${{ earnings.vacation_pay }}</td>
+                    </tr>
+                    {% endif %}
+                    <tr>
+                        <td style="padding: 5px 0;">Commission Earned (Your Share):</td>
+                        <td style="text-align: right; font-weight: bold;">${{ commission_earned }}</td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+        {% endif %}
+
+        <!-- Annual CPP/EI Contribution Summary (for employees only) -->
+        {% if "Employee" in role_type %}
+        <tr>
+            <td style="padding: 20px; background-color: #f8f9fa; border-top: 1px solid #ddd;">
+                <div style="font-weight: bold; margin-bottom: 15px; color: #2c5aa0;">Annual CPP/EI Contribution So Far</div>
+                <table style="width: 100%; font-size: 14px;">
+                    <tr>
+                        <td style="padding: 8px; border: 1px solid #ddd; background-color: white; width: 50%;">
+                            <table style="width: 100%;">
+                                <tr>
+                                    <td style="font-weight: bold; color: #2c5aa0;">CPP Contributions</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 3px 0;">Before this payroll:</td>
+                                    <td style="text-align: right;">${{ cpp_ytd_before }}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 3px 0;">This payroll:</td>
+                                    <td style="text-align: right;">${{ cpp }}</td>
+                                </tr>
+                                <tr style="border-top: 1px solid #ccc;">
+                                    <td style="padding: 3px 0; font-weight: bold;">Total YTD:</td>
+                                    <td style="text-align: right; font-weight: bold;">${{ cpp_ytd_after }}</td>
+                                </tr>
+                            </table>
+                        </td>
+                        <td style="padding: 8px; border: 1px solid #ddd; background-color: white; width: 50%;">
+                            <table style="width: 100%;">
+                                <tr>
+                                    <td style="font-weight: bold; color: #2c5aa0;">EI Contributions</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 3px 0;">Before this payroll:</td>
+                                    <td style="text-align: right;">${{ ei_ytd_before }}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 3px 0;">This payroll:</td>
+                                    <td style="text-align: right;">${{ ei }}</td>
+                                </tr>
+                                <tr style="border-top: 1px solid #ccc;">
+                                    <td style="padding: 3px 0; font-weight: bold;">Total YTD:</td>
+                                    <td style="text-align: right; font-weight: bold;">${{ ei_ytd_after }}</td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+        {% endif %}
 
         <!-- Summary Section -->
         <tr>
@@ -206,6 +356,9 @@
         <tr>
             <td style="padding: 20px; text-align: center; border-top: 1px solid #ddd; background-color: #f8f9fa; font-size: 12px; color: #666;">
                 This is an automated payslip. Please keep this for your records.<br>
+                {% if "Commission" in role_type %}
+                    <strong>Commission-based payroll:</strong> Your earnings are calculated based on treatments provided and payments received.<br>
+                {% endif %}
                 For questions about your pay, please contact HR at clinic.help.desk.app@gmail.com
             </td>
         </tr>

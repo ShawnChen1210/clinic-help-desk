@@ -899,13 +899,14 @@ class SpreadsheetViewSet(viewsets.ViewSet):
 
     def _upload_to_sheet(self, sheet_id, df, require_merge_column=False, sheet_type=None):
         """
-        Upload dataframe to Google Sheet, handling merge column logic and sorting
+        Upload dataframe to Google Sheet, handling merge column logic, sorting, and duplicate prevention
         """
         clinic_spreadsheet = self._get_clinic_spreadsheet_by_sheet_id(sheet_id)
         existing_data, existing_headers = padded_google_sheets(sheet_id, 'A1:Z5')
         is_first_upload = not existing_data and not existing_headers
 
         if require_merge_column:
+            # This is compensation_sales type - use existing merge logic
             merge_column = self.detect_merge_column(df)
             if not merge_column:
                 raise ValueError('This sheet type requires a column with format #####-P## or #####-C##')
@@ -914,13 +915,21 @@ class SpreadsheetViewSet(viewsets.ViewSet):
                 # Store merge column and sort data
                 clinic_spreadsheet.merge_column = merge_column
                 clinic_spreadsheet.save()
-
-        # Sort the dataframe based on sheet type (but skip compensation_sales as it has its own sorting logic)
-        if sheet_type and sheet_type != 'compensation_sales':
-            df = self._sort_dataframe_by_type(df, sheet_type)
-        elif sheet_type == 'compensation_sales' and is_first_upload:
-            # Only sort compensation_sales on first upload, merges handle their own sorting
-            df = self._sort_dataframe_by_type(df, sheet_type)
+                # Sort the dataframe
+                df = self._sort_dataframe_by_type(df, sheet_type)
+            else:
+                # For subsequent uploads, merge logic will be handled elsewhere
+                # Don't sort here as merge_dataframes_by_key handles its own sorting
+                pass
+        else:
+            # For non-merge based sheet types, handle duplicates with existing data
+            if not is_first_upload:
+                # Merge with existing data and remove duplicates
+                df = self._merge_with_existing_data(sheet_id, df, sheet_type)
+            else:
+                # First upload - just remove duplicates within the new data and sort
+                df = self._remove_duplicate_rows(df, sheet_type)
+                df = self._sort_dataframe_by_type(df, sheet_type)
 
         # Ensure data is clean before uploading
         df = df.fillna('').replace([float('inf'), float('-inf')], '')
@@ -962,10 +971,11 @@ class SpreadsheetViewSet(viewsets.ViewSet):
     def merge_dataframes_by_key(self, existing_df, new_df, existing_merge_col, new_merge_col):
         """
         Merge dataframes with the following logic:
-        1. If a key exists in both, update the existing row with new data (non-empty values take precedence)
+        1. If a key exists in both, update the existing row with new data ONLY if data is different
         2. If a key only exists in new_df, add it as a new row
         3. Keep all existing rows, even if not in new_df
-        4. Sort final result by the key column
+        4. Skip identical rows (same key + same data in overlapping columns)
+        5. Sort final result by the key column
         """
         try:
             if existing_df.empty:
@@ -996,13 +1006,13 @@ class SpreadsheetViewSet(viewsets.ViewSet):
             existing_dict = {}
             for _, row in existing_df.iterrows():
                 key = str(row[existing_merge_col]).strip()
-                if key and key != 'nan':  # Skip empty or nan keys
+                if key and key != 'nan' and key != '':  # Skip empty, nan, or blank keys
                     existing_dict[key] = row.to_dict()
 
             new_dict = {}
             for _, row in new_df.iterrows():
                 key = str(row[existing_merge_col]).strip()
-                if key and key != 'nan':  # Skip empty or nan keys
+                if key and key != 'nan' and key != '':  # Skip empty, nan, or blank keys
                     new_dict[key] = row.to_dict()
 
             # Process all keys (existing and new)
@@ -1021,15 +1031,51 @@ class SpreadsheetViewSet(viewsets.ViewSet):
                     for col, val in existing_dict[key].items():
                         merged_row[col] = str(val) if val is not None else ''
 
-                # Update/overwrite with new data if available
+                # Check if we need to update with new data
                 if key in new_dict:
-                    for col, val in new_dict[key].items():
+                    new_row_data = new_dict[key]
+                    has_changes = False
+
+                    # Check if this is truly new data or identical to existing
+                    if key in existing_dict:
+                        # Compare overlapping columns to see if anything actually changed
+                        existing_row_data = existing_dict[key]
+
+                        for col, new_val in new_row_data.items():
+                            new_val_str = str(new_val) if new_val is not None else ''
+                            existing_val_str = str(existing_row_data.get(col, '')) if existing_row_data.get(
+                                col) is not None else ''
+
+                            # Only consider it a change if:
+                            # 1. New value is not empty AND different from existing, OR
+                            # 2. Existing value is empty and new value is not empty
+                            if new_val_str != '' and new_val_str != existing_val_str:
+                                has_changes = True
+                                break
+                            elif existing_val_str == '' and new_val_str != '':
+                                has_changes = True
+                                break
+
+                        # If no changes detected, skip updating this row
+                        if not has_changes:
+                            print(f"Skipping identical row for key: {key}")
+                            # Just add the existing row as-is
+                            result_data.append(merged_row)
+                            continue
+
+                    # Update/add with new data (only if there are actual changes or it's a completely new key)
+                    for col, val in new_row_data.items():
                         val_str = str(val) if val is not None else ''
-                        # Only update if new value is not empty, or if existing value is empty
+                        # Update if new value is not empty, or if existing value is empty
                         if val_str != '' or merged_row.get(col, '') == '':
                             merged_row[col] = val_str
 
+                    print(f"Updated/added row for key: {key}")
+
                 result_data.append(merged_row)
+
+            # Remove any completely empty rows (all values are empty strings)
+            result_data = [row for row in result_data if any(val.strip() for val in row.values())]
 
             # Create result dataframe
             result_df = pd.DataFrame(result_data, columns=all_columns).fillna('')
@@ -1436,6 +1482,74 @@ class SpreadsheetViewSet(viewsets.ViewSet):
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    def _remove_duplicate_rows(self, df, sheet_type):
+        """
+        Remove completely duplicate rows from dataframe.
+        For different sheet types, we may want different duplicate detection logic.
+        """
+        try:
+            if df.empty:
+                return df
+
+            # Convert all columns to string to ensure consistent comparison
+            df_str = df.astype(str).fillna('')
+
+            # For most sheet types, remove rows that are completely identical
+            if sheet_type in ['daily_transaction', 'transaction_report', 'payment_transaction', 'time_hour']:
+                # Remove completely duplicate rows
+                original_count = len(df_str)
+                df_deduped = df_str.drop_duplicates(keep='first')
+                removed_count = original_count - len(df_deduped)
+
+                if removed_count > 0:
+                    print(f"Removed {removed_count} duplicate rows from {sheet_type} data")
+
+                return df_deduped
+
+            # For compensation_sales, duplicates should be handled by merge logic
+            elif sheet_type == 'compensation_sales':
+                return df
+
+            else:
+                # Default: remove complete duplicates
+                return df_str.drop_duplicates(keep='first')
+
+        except Exception as e:
+            print(f"Error removing duplicates: {e}")
+            return df
+
+    def _merge_with_existing_data(self, sheet_id, new_df, sheet_type):
+        """
+        For non-merge based sheet types, combine new data with existing data
+        and remove duplicates intelligently.
+        """
+        try:
+            # Get existing data
+            existing_data, existing_headers = padded_google_sheets(sheet_id, 'Sheet1')
+
+            if not existing_data or not existing_headers:
+                # No existing data, just remove duplicates from new data
+                return self._remove_duplicate_rows(new_df, sheet_type)
+
+            # Create existing dataframe
+            existing_df = pd.DataFrame(existing_data, columns=existing_headers).fillna('')
+
+            # Combine dataframes
+            combined_df = pd.concat([existing_df, new_df], ignore_index=True)
+
+            # Remove duplicates
+            deduplicated_df = self._remove_duplicate_rows(combined_df, sheet_type)
+
+            # Sort the final result
+            sorted_df = self._sort_dataframe_by_type(deduplicated_df, sheet_type)
+
+            return sorted_df
+
+        except Exception as e:
+            print(f"Error merging with existing data: {e}")
+            # If merge fails, just return the new data with duplicates removed
+            return self._remove_duplicate_rows(new_df, sheet_type)
+
 class AnalyticsViewSet(viewsets.ViewSet):
     column_pref_queryset = SheetColumnPreference.objects.all()
     authentication_classes = [SessionAuthentication]
@@ -1759,51 +1873,170 @@ class PayrollViewSet(viewsets.ModelViewSet):
 
                 return Response(payroll_data, status=status.HTTP_200_OK)
 
+
             elif isinstance(payment_detail, HourlyContractor):
-                # Simple contractor calculation: hours × rate, no deductions
+
+                # Existing contractor code (unchanged)
+
                 total_hours = self._get_user_hours_from_sheet(timesheet_sheet_id, user, start_date, end_date)
 
                 total_pay = float(payment_detail.hourly_wage) * total_hours
 
-                # Prepare payroll data for contractor
                 payroll_data = {
+
                     'user_id': user.id,
+
                     'user_name': f"{user.first_name} {user.last_name}".strip() or user.username,
+
                     'pay_period_start': start_date_str,
+
                     'pay_period_end': end_date_str,
+
                     'role_type': 'Hourly Contractor',
+
                     'total_hours': total_hours,
+
                     'hourly_wage': float(payment_detail.hourly_wage),
+
                     'earnings': {
-                        'salary': total_pay,  # Total pay goes in salary field for template
+
+                        'salary': total_pay,
+
                         'contractor_pay': total_pay,
+
                     },
+
                     'deductions': {
+
                         'federal_tax': 0.0,
+
                         'provincial_tax': 0.0,
+
                         'cpp': 0.0,
+
                         'ei': 0.0,
+
                     },
+
                     'totals': {
+
                         'total_earnings': total_pay,
+
                         'total_deductions': 0.0,
+
                         'net_payment': total_pay,
+
                     },
+
                     'ytd_amounts': {
+
                         'earnings': float(user_profile.ytd_pay) + total_pay,
+
                         'deductions': float(user_profile.ytd_deduction),
+
                     },
+
                     'breakdown': {
+
                         'contractor_hours': total_hours,
+
                     }
+
                 }
 
                 return Response(payroll_data, status=status.HTTP_200_OK)
 
+
+            elif isinstance(payment_detail, (CommissionEmployee, CommissionContractor)):
+
+                # Commission-based payroll calculation
+
+                # Get compensation sheet ID
+
+                compensation_sheet_id = clinic_spreadsheet.compensation_sales_sheet_id
+
+                if not compensation_sheet_id:
+                    return Response(
+
+                        {'error': f'No compensation sales sheet configured for clinic: {clinic.name}'},
+
+                        status=status.HTTP_400_BAD_REQUEST
+
+                    )
+
+                # Get commission data from compensation sheet
+
+                commission_data = self._get_commission_data_from_sheet(
+
+                    compensation_sheet_id, user, start_date, end_date
+
+                )
+
+                if not commission_data:
+                    return Response(
+
+                        {
+                            'error': f'No commission data found for {user.first_name} {user.last_name} in the specified period'},
+
+                        status=status.HTTP_400_BAD_REQUEST
+
+                    )
+
+                # Calculate POS fees using the matching algorithm
+
+                pos_fees = self._calculate_pos_fees_for_practitioner(
+
+                    commission_data['invoice_data'], clinic_spreadsheet
+
+                )
+
+                # Calculate commission payroll
+
+                payroll_data = self._calculate_commission_payroll(
+
+                    user=user,
+
+                    user_profile=user_profile,
+
+                    commission_data=commission_data,
+
+                    pos_fees=pos_fees,
+
+                    site_settings=site_settings,
+
+                    start_date=start_date,
+
+                    end_date=end_date,
+
+                    period_days=period_days
+
+                )
+
+                # Debug logging
+
+                print(f"=== COMMISSION PAYROLL DEBUG for {user.first_name} {user.last_name} ===")
+                print(f"Role type: {payroll_data['role_type']}")
+                print(f"Commission rate: {payroll_data['commission_rate']}%")
+                print(f"Gross income: ${payroll_data['earnings']['gross_income']}")
+                print(f"Commission deduction (company keeps): ${payroll_data['deductions']['commission_deduction']}")
+                print(f"Commission income (practitioner gets): ${payroll_data['earnings']['commission_earned']}")
+                print(f"POS fees: ${pos_fees}")
+                if 'vacation_pay' in payroll_data['earnings']:
+                    print(f"Vacation pay: ${payroll_data['earnings']['vacation_pay']}")
+                print(f"Net payment: ${payroll_data['totals']['net_payment']}")
+                print("=== END DEBUG ===")
+
+                return Response(payroll_data, status=status.HTTP_200_OK)
+
+
             else:
+
                 return Response(
+
                     {'error': 'Payroll calculation not implemented for this role type yet'},
+
                     status=status.HTTP_400_BAD_REQUEST
+
                 )
 
         except Exception as e:
@@ -2296,8 +2529,368 @@ class PayrollViewSet(viewsets.ModelViewSet):
             print(f"Error fetching sheet data: {str(e)}")
             return {}
 
+    def _normalize_practitioner_name(self, name):
+        """
+        Normalize practitioner name by removing content in parentheses
+        Example: "Amanda Seminiano (Registered Massage Therapist)" -> "Amanda Seminiano"
+        """
+        import re
+        if not name:
+            return ""
+        # Remove anything in parentheses and normalize whitespace
+        normalized = re.sub(r'\([^)]*\)', '', str(name))
+        # Replace multiple spaces with single space and strip
+        normalized = re.sub(r'\s+', ' ', normalized).strip()
+        return normalized
+
+    def _extract_base_invoice_number(self, invoice_str):
+        """
+        Extract base invoice number, ignoring suffixes
+        Example: "18269-C01" -> "18269"
+        """
+        if not invoice_str:
+            return ""
+        # Split on first dash and take the first part
+        return str(invoice_str).split('-')[0]
+
+    def _get_commission_data_from_sheet(self, compensation_sheet_id, user, start_date, end_date):
+        """
+        Extract commission data for a specific practitioner from compensation sheet
+        Returns: dict with aggregated totals or None if no data found
+        """
+        try:
+            sheet_data = read_google_sheets(compensation_sheet_id, "A:Z")
+
+            if not sheet_data or len(sheet_data) < 2:
+                print("No data found in compensation sheet")
+                return None
+
+            headers = sheet_data[0]
+            data_rows = sheet_data[1:]
+            df = pd.DataFrame(data_rows, columns=headers)
+
+            # Normalize user name for matching
+            user_full_name = f"{user.first_name} {user.last_name}".strip()
+
+            # Filter for practitioner's rows
+            practitioner_rows = []
+            for _, row in df.iterrows():
+                practitioner_name = self._normalize_practitioner_name(row.get('Practitioner', ''))
+                if practitioner_name.lower() == user_full_name.lower():
+                    practitioner_rows.append(row)
+
+            if not practitioner_rows:
+                print(f"No compensation data found for practitioner: {user_full_name}")
+                return None
+
+                # Convert to DataFrame and debug dates
+            practitioner_df = pd.DataFrame(practitioner_rows)
+
+            print(f"Found {len(practitioner_df)} total rows for {user_full_name}")
+
+            # Parse dates and show what we found
+            practitioner_df['Invoice Date'] = pd.to_datetime(practitioner_df['Invoice Date'], errors='coerce')
+
+            print(f"Date range requested: {start_date} to {end_date}")
+            print("Invoice dates found:")
+            for date in practitioner_df['Invoice Date'].dropna():
+                print(f"  - {date.date()}")
+
+            # Filter by date range
+            mask = (
+                    (practitioner_df['Invoice Date'].dt.date >= start_date) &
+                    (practitioner_df['Invoice Date'].dt.date <= end_date)
+            )
+            period_rows = practitioner_df[mask]
+
+            print(f"Rows after date filtering: {len(period_rows)}")
+
+            if period_rows.empty:
+                print(f"No compensation data found for {user_full_name} in period {start_date} to {end_date}")
+                return None
+
+            # Aggregate the required columns
+            try:
+                adjusted_total = pd.to_numeric(period_rows['Adjusted Total'], errors='coerce').fillna(0).sum()
+                tax_gst = pd.to_numeric(period_rows['Tax'], errors='coerce').fillna(0).sum()
+
+                # Collect invoice and patient data for POS fee calculation
+                invoice_data = []
+                for _, row in period_rows.iterrows():
+                    invoice_data.append({
+                        'invoice_date': row['Invoice Date'].date() if pd.notna(row['Invoice Date']) else None,
+                        'invoice_number': self._extract_base_invoice_number(row.get('Invoice #', '')),
+                        'patient_name': str(row.get('Patient', '')).strip(),
+                        'adjusted_total': pd.to_numeric(row.get('Adjusted Total', 0), errors='coerce') or 0
+                    })
+
+                return {
+                    'adjusted_total': float(adjusted_total),
+                    'tax_gst': float(tax_gst),
+                    'invoice_data': invoice_data,
+                    'period_start': start_date,
+                    'period_end': end_date
+                }
+
+            except Exception as e:
+                print(f"Error aggregating commission data: {str(e)}")
+                return None
+
+        except Exception as e:
+            print(f"Error fetching commission data: {str(e)}")
+            return None
+
+    def _calculate_pos_fees_for_practitioner(self, invoice_data, clinic_spreadsheet):
+        """
+        Calculate total POS fees for a practitioner using the matching algorithm
+        Returns: float (total POS fees)
+        """
+        try:
+            if not invoice_data:
+                return 0.0
+
+            transaction_sheet_id = clinic_spreadsheet.transaction_report_sheet_id
+            payment_sheet_id = clinic_spreadsheet.payment_transaction_sheet_id
+
+            if not transaction_sheet_id or not payment_sheet_id:
+                print("Missing required sheet IDs for POS fee calculation")
+                return 0.0
+
+            # Get transaction data
+            transaction_data = read_google_sheets(transaction_sheet_id, "A:Z")
+            if not transaction_data or len(transaction_data) < 2:
+                return 0.0
+
+            transaction_headers = transaction_data[0]
+            transaction_df = pd.DataFrame(transaction_data[1:], columns=transaction_headers)
+
+            # Get Jane payments data
+            payment_data = read_google_sheets(payment_sheet_id, "A:Z")
+            if not payment_data or len(payment_data) < 2:
+                return 0.0
+
+            payment_headers = payment_data[0]
+            payment_df = pd.DataFrame(payment_data[1:], columns=payment_headers)
+
+            total_pos_fees = 0.0
+
+            for invoice_info in invoice_data:
+                invoice_date = invoice_info['invoice_date']
+                base_invoice_number = invoice_info['invoice_number']
+                patient_name = invoice_info['patient_name']
+
+                if not all([invoice_date, base_invoice_number, patient_name]):
+                    continue
+
+                # Step 1: Find matching transactions
+                # Convert payment date to datetime for comparison
+                transaction_df['Payment Date'] = pd.to_datetime(transaction_df['Payment Date'], errors='coerce')
+
+                # Filter transactions by date, patient name, and Jane Payments method
+                matching_transactions = transaction_df[
+                    (transaction_df['Payment Date'].dt.date == invoice_date) &
+                    (transaction_df['Payer'].str.contains(patient_name, case=False, na=False)) &
+                    (transaction_df['Payment Method'].str.contains('Jane Payments', case=False, na=False))
+                    ]
+
+                # Also check if Applied To field contains our base invoice number
+                def check_invoice_match(applied_to_str, base_number):
+                    if pd.isna(applied_to_str):
+                        return False
+                    applied_invoices = str(applied_to_str).split(',')
+                    for applied_invoice in applied_invoices:
+                        applied_base = self._extract_base_invoice_number(applied_invoice.strip())
+                        if applied_base == base_number:
+                            return True
+                    return False
+
+                matching_transactions = matching_transactions[
+                    matching_transactions['Applied To'].apply(lambda x: check_invoice_match(x, base_invoice_number))
+                ]
+
+                if matching_transactions.empty:
+                    continue
+
+                # Step 2: Match with Jane Payments to get fees
+                for _, transaction in matching_transactions.iterrows():
+                    transaction_amount = pd.to_numeric(transaction.get('Amount', 0), errors='coerce') or 0
+                    transaction_date = transaction['Payment Date'].date()
+
+                    # Find matching Jane Payments entry
+                    payment_df['Date'] = pd.to_datetime(payment_df['Date'], errors='coerce')
+
+                    matching_payments = payment_df[
+                        (payment_df['Date'].dt.date == transaction_date) &
+                        (payment_df['Customer'].str.contains(patient_name, case=False, na=False)) &
+                        (pd.to_numeric(payment_df['Customer Charge'], errors='coerce').fillna(0).round(2) ==
+                         round(float(transaction_amount), 2))
+                        ]
+
+                    # Sum up the Jane Payments fees for matching entries
+                    for _, payment in matching_payments.iterrows():
+                        jane_fee = pd.to_numeric(payment.get('Jane Payments Fee', 0), errors='coerce') or 0
+                        total_pos_fees += float(jane_fee)
+                        print(f"Found POS fee: ${jane_fee} for {patient_name} on {transaction_date}")
+
+            print(f"Total calculated POS fees: ${total_pos_fees}")
+            return total_pos_fees
+
+        except Exception as e:
+            print(f"Error calculating POS fees: {str(e)}")
+            return 0.0
+
+    def _calculate_vacation_pay_only(self, gross_income, site_settings):
+        """
+        Calculate vacation pay only (no overtime for commission employees)
+        """
+        try:
+            gross_income = Decimal(str(gross_income))
+            vacation_rate = Decimal(str(site_settings.vacation_pay_rate)) / 100
+            vacation_pay = gross_income * vacation_rate
+            return float(vacation_pay)
+        except Exception as e:
+            print(f"Error calculating vacation pay: {str(e)}")
+            return 0.0
+
+    def _calculate_commission_payroll(self, user, user_profile, commission_data, pos_fees, site_settings, start_date,
+                                      end_date, period_days):
+        """
+        Calculate payroll for commission-based roles
+        """
+        try:
+            payment_detail = user_profile.payment_detail
+
+            # Base calculations
+            adjusted_total = Decimal(str(commission_data['adjusted_total']))
+            tax_gst = Decimal(str(commission_data['tax_gst']))
+            pos_fees_decimal = Decimal(str(pos_fees))
+
+            gross_income = adjusted_total + tax_gst
+
+            # Calculate commission properly
+            # Note: commission_rate is already stored as a decimal (e.g., 0.79 = 79%)
+            commission_rate_decimal = Decimal(str(payment_detail.commission_rate))  # Already a decimal
+            commission_income = gross_income * commission_rate_decimal  # What practitioner keeps
+            commission_deduction = gross_income * (Decimal('1') - commission_rate_decimal)  # What company keeps
+
+            if isinstance(payment_detail, CommissionContractor):
+                # Contractor: Simple calculation, no tax deductions
+                net_payment = commission_income - pos_fees_decimal  # Practitioner gets their commission minus POS fees
+
+                payroll_data = {
+                    'user_id': user.id,
+                    'user_name': f"{user.first_name} {user.last_name}".strip() or user.username,
+                    'pay_period_start': start_date.strftime('%Y-%m-%d'),
+                    'pay_period_end': end_date.strftime('%Y-%m-%d'),
+                    'role_type': 'Commission Contractor',
+                    'commission_rate': float(payment_detail.commission_rate),
+                    'earnings': {
+                        'gross_income': float(gross_income),
+                        'adjusted_total': float(adjusted_total),
+                        'tax_gst': float(tax_gst),
+                        'commission_earned': float(commission_income),
+                        'pos_fees': float(pos_fees_decimal),
+                        'salary': float(net_payment),  # For template compatibility
+                    },
+                    'deductions': {
+                        'federal_tax': 0.0,
+                        'provincial_tax': 0.0,
+                        'cpp': 0.0,
+                        'ei': 0.0,
+                        'commission_deduction': float(commission_deduction),  # Fixed: This is what company keeps
+                        'pos_fees': float(pos_fees_decimal),
+                    },
+                    'totals': {
+                        'total_earnings': float(gross_income),
+                        'total_deductions': float(commission_deduction + pos_fees_decimal),
+                        'net_payment': float(net_payment),
+                    },
+                    'ytd_amounts': {
+                        'earnings': float(user_profile.ytd_pay) + float(net_payment),
+                        'deductions': float(user_profile.ytd_deduction),
+                    },
+                    'breakdown': {
+                        'commission_rate': float(payment_detail.commission_rate),
+                        'gross_before_fees': float(gross_income),
+                        'commission_income': float(commission_income),
+                        'commission_deduction': float(commission_deduction),
+                    }
+                }
+
+            elif isinstance(payment_detail, CommissionEmployee):
+                # Employee: Add vacation pay and calculate tax deductions
+                vacation_pay = self._calculate_vacation_pay_only(float(commission_income), site_settings)
+                vacation_pay_decimal = Decimal(str(vacation_pay))
+
+                # Total taxable income is commission income + vacation pay - pos fees
+                total_before_tax_deductions = commission_income + vacation_pay_decimal - pos_fees_decimal
+
+                # Calculate tax deductions on the taxable amount
+                deductions_result = self.calculate_deductions(
+                    total_taxable_income=float(total_before_tax_deductions),
+                    period_days=period_days,
+                    user_profile=user_profile,
+                    site_settings=site_settings
+                )
+
+                net_payment = total_before_tax_deductions - Decimal(str(deductions_result['total_deductions']))
+
+                payroll_data = {
+                    'user_id': user.id,
+                    'user_name': f"{user.first_name} {user.last_name}".strip() or user.username,
+                    'pay_period_start': start_date.strftime('%Y-%m-%d'),
+                    'pay_period_end': end_date.strftime('%Y-%m-%d'),
+                    'role_type': 'Commission Employee',
+                    'commission_rate': float(payment_detail.commission_rate),
+                    'earnings': {
+                        'gross_income': float(gross_income),
+                        'adjusted_total': float(adjusted_total),
+                        'tax_gst': float(tax_gst),
+                        'commission_earned': float(commission_income),
+                        'vacation_pay': vacation_pay,
+                        'pos_fees': float(pos_fees_decimal),
+                        'salary': float(total_before_tax_deductions),  # For template compatibility
+                    },
+                    'deductions': {
+                        'federal_tax': deductions_result['deductions']['federal_tax'],
+                        'provincial_tax': deductions_result['deductions']['provincial_tax'],
+                        'cpp': deductions_result['deductions']['cpp'],
+                        'ei': deductions_result['deductions']['ei'],
+                        'commission_deduction': float(commission_deduction),  # Fixed: This is what company keeps
+                        'pos_fees': float(pos_fees_decimal),
+                    },
+                    'totals': {
+                        'total_earnings': float(gross_income + vacation_pay_decimal),
+                        'total_deductions': float(commission_deduction + pos_fees_decimal) + deductions_result[
+                            'total_deductions'],
+                        'net_payment': float(net_payment),
+                    },
+                    'ytd_amounts': {
+                        'earnings': deductions_result['projected_ytd_earnings'],
+                        'deductions': deductions_result['projected_ytd_deductions'],
+                    },
+                    'breakdown': {
+                        'commission_rate': float(payment_detail.commission_rate),
+                        'gross_before_fees': float(gross_income),
+                        'vacation_pay': vacation_pay,
+                        'cpp_ytd_after': deductions_result['cpp_ytd_after'],
+                        'ei_ytd_after': deductions_result['ei_ytd_after'],
+                        'commission_income': float(commission_income),
+                        'commission_deduction': float(commission_deduction),
+                    }
+                }
+
+            else:
+                raise ValueError(f"Unsupported commission role type: {type(payment_detail)}")
+
+            return payroll_data
+
+        except Exception as e:
+            print(f"Error calculating commission payroll: {str(e)}")
+            raise e
+
     def _send_payroll_email(self, user, payroll_data):
-        """Send payroll email to user using Django template"""
+        """Send payroll email to user using Django template with commission support"""
         try:
             if not user.email:
                 raise ValueError(f"User {user.username} does not have an email address configured")
@@ -2315,6 +2908,10 @@ class PayrollViewSet(viewsets.ModelViewSet):
             # Get earnings data
             earnings = payroll_data.get('earnings', {})
             breakdown = payroll_data.get('breakdown', {})
+            deductions = payroll_data.get('deductions', {})
+
+            # Determine if this is commission-based payroll
+            is_commission = 'Commission' in payroll_data.get('role_type', '')
 
             # Prepare context for template
             context = {
@@ -2323,27 +2920,9 @@ class PayrollViewSet(viewsets.ModelViewSet):
                 'pay_period_start': payroll_data.get('pay_period_start', ''),
                 'pay_period_end': payroll_data.get('pay_period_end', ''),
                 'role_type': payroll_data.get('role_type', ''),
-                'total_hours': payroll_data.get('total_hours', 0),
-                'hourly_wage': format_currency(payroll_data.get('hourly_wage', 0)),
+
+                # Common fields
                 'salary_amount': format_currency(earnings.get('salary', 0)),
-
-                # Add the missing earnings data
-                'earnings': {
-                    'regular_pay': format_currency(earnings.get('regular_pay', 0)),
-                    'overtime_pay': format_currency(earnings.get('overtime_pay', 0)),
-                    'vacation_pay': format_currency(earnings.get('vacation_pay', 0)),
-                },
-
-                # Add the breakdown data for hours
-                'breakdown': {
-                    'regular_hours': breakdown.get('regular_hours', 0),
-                    'overtime_hours': breakdown.get('overtime_hours', 0),
-                },
-
-                'federal_tax': format_currency(payroll_data.get('deductions', {}).get('federal_tax', 0)),
-                'provincial_tax': format_currency(payroll_data.get('deductions', {}).get('provincial_tax', 0)),
-                'cpp': format_currency(payroll_data.get('deductions', {}).get('cpp', 0)),
-                'ei': format_currency(payroll_data.get('deductions', {}).get('ei', 0)),
                 'total_earnings': format_currency(payroll_data.get('totals', {}).get('total_earnings', 0)),
                 'total_deductions': format_currency(payroll_data.get('totals', {}).get('total_deductions', 0)),
                 'net_payment': format_currency(payroll_data.get('totals', {}).get('net_payment', 0)),
@@ -2353,6 +2932,68 @@ class PayrollViewSet(viewsets.ModelViewSet):
                 'company_name': 'Alternative Therapy On the Go Inc.',
                 'company_address': '23 - 7330 122nd Street, Surrey, BC V3W 1B4',
             }
+
+            if is_commission:
+                # Commission-specific context
+                context.update({
+                    'commission_rate': f"{float(payroll_data.get('commission_rate', 0)) * 100:.1f}%",
+                    # Convert to percentage
+                    'gross_income': format_currency(earnings.get('gross_income', 0)),
+                    'adjusted_total': format_currency(earnings.get('adjusted_total', 0)),
+                    'tax_gst': format_currency(earnings.get('tax_gst', 0)),
+                    'commission_deduction': format_currency(deductions.get('commission_deduction', 0)),
+                    'commission_earned': format_currency(earnings.get('commission_earned', 0)),
+                    'pos_fees': format_currency(earnings.get('pos_fees', 0)),
+                    'vacation_pay': format_currency(earnings.get('vacation_pay', 0)) if earnings.get('vacation_pay',
+                                                                                                     0) > 0 else "0.00",
+
+                    # Tax deductions (for commission employees)
+                    'federal_tax': format_currency(deductions.get('federal_tax', 0)),
+                    'provincial_tax': format_currency(deductions.get('provincial_tax', 0)),
+                    'cpp': format_currency(deductions.get('cpp', 0)),
+                    'ei': format_currency(deductions.get('ei', 0)),
+
+                    # YTD Contributions for checking caps
+                    'cpp_ytd_before': format_currency(
+                        (breakdown.get('cpp_ytd_after', 0) or 0) - (deductions.get('cpp', 0) or 0)),
+                    'cpp_ytd_after': format_currency(breakdown.get('cpp_ytd_after', 0)),
+                    'ei_ytd_before': format_currency(
+                        (breakdown.get('ei_ytd_after', 0) or 0) - (deductions.get('ei', 0) or 0)),
+                    'ei_ytd_after': format_currency(breakdown.get('ei_ytd_after', 0)),
+                })
+            else:
+                # Hourly-based context
+                context.update({
+                    'total_hours': payroll_data.get('total_hours', 0),
+                    'hourly_wage': format_currency(payroll_data.get('hourly_wage', 0)),
+
+                    # Earnings breakdown for hourly employees
+                    'earnings': {
+                        'regular_pay': format_currency(earnings.get('regular_pay', 0)),
+                        'overtime_pay': format_currency(earnings.get('overtime_pay', 0)),
+                        'vacation_pay': format_currency(earnings.get('vacation_pay', 0)),
+                    },
+
+                    # Hours breakdown for hourly employees
+                    'breakdown': {
+                        'regular_hours': breakdown.get('regular_hours', 0),
+                        'overtime_hours': breakdown.get('overtime_hours', 0),
+                    },
+
+                    # Tax deductions for hourly employees
+                    'federal_tax': format_currency(deductions.get('federal_tax', 0)),
+                    'provincial_tax': format_currency(deductions.get('provincial_tax', 0)),
+                    'cpp': format_currency(deductions.get('cpp', 0)),
+                    'ei': format_currency(deductions.get('ei', 0)),
+
+                    # YTD Contributions for checking caps (hourly employees)
+                    'cpp_ytd_before': format_currency(
+                        (breakdown.get('cpp_ytd_after', 0) or 0) - (deductions.get('cpp', 0) or 0)),
+                    'cpp_ytd_after': format_currency(breakdown.get('cpp_ytd_after', 0)),
+                    'ei_ytd_before': format_currency(
+                        (breakdown.get('ei_ytd_after', 0) or 0) - (deductions.get('ei', 0) or 0)),
+                    'ei_ytd_after': format_currency(breakdown.get('ei_ytd_after', 0)),
+                })
 
             # Render HTML template
             html_content = render_to_string('payroll_email.html', context)
@@ -2372,6 +3013,5 @@ class PayrollViewSet(viewsets.ModelViewSet):
         except Exception as e:
             print(f"Error sending payroll email: {str(e)}")
             raise e
-
 
 

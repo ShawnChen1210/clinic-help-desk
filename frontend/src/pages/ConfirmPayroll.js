@@ -20,8 +20,6 @@ export default function ConfirmPayroll() {
     if (location.state?.payrollData) {
       const data = location.state.payrollData;
       setPayrollData(data);
-
-
     } else {
       navigate(`/chd-app/${clinic_id}/payroll/${userId}`);
     }
@@ -50,7 +48,6 @@ export default function ConfirmPayroll() {
 
       if (response.status === 200) {
         alert(`Payroll sent successfully! ${payrollData.user_name} will receive an email with their payslip.`);
-        console.log(payrollPayload.earnings.vacation_pay)
         navigate(`/chd-app/${clinic_id}/members`);
       }
     } catch (error) {
@@ -70,6 +67,11 @@ export default function ConfirmPayroll() {
       setIsSending(false);
     }
   };
+
+  // Helper function to determine if this is commission-based payroll
+  const isCommissionBased = payrollData?.role_type?.includes('Commission') || false;
+  const isHourlyBased = payrollData?.role_type?.includes('Hourly') || false;
+  const isEmployee = payrollData?.role_type?.includes('Employee') || false;
 
   if (!payrollData) {
     return (
@@ -163,26 +165,173 @@ export default function ConfirmPayroll() {
           </div>
         </div>
 
-        {/* Additional details */}
+        {/* Role-specific details */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm mt-4 pt-4 border-t border-blue-200">
           <div>
             <span className="font-medium text-blue-800">Role:</span>
             <p className="text-blue-700">{payrollData.role_type}</p>
           </div>
-          <div>
-            <span className="font-medium text-blue-800">Hours Worked:</span>
-            <p className="text-blue-700">{payrollData.total_hours} hours</p>
-          </div>
-          <div>
-            <span className="font-medium text-blue-800">Hourly Rate:</span>
-            <p className="text-blue-700">
-              {new Intl.NumberFormat('en-CA', {
-                style: 'currency',
-                currency: 'CAD'
-              }).format(payrollData.hourly_wage || 0)}
-            </p>
-          </div>
+
+          {isHourlyBased && (
+            <>
+              <div>
+                <span className="font-medium text-blue-800">Hours Worked:</span>
+                <p className="text-blue-700">{payrollData.total_hours} hours</p>
+              </div>
+              <div>
+                <span className="font-medium text-blue-800">Hourly Rate:</span>
+                <p className="text-blue-700">
+                  {new Intl.NumberFormat('en-CA', {
+                    style: 'currency',
+                    currency: 'CAD'
+                  }).format(payrollData.hourly_wage || 0)}
+                </p>
+              </div>
+            </>
+          )}
+
+          {isCommissionBased && (
+            <>
+              <div>
+                <span className="font-medium text-blue-800">Commission Rate:</span>
+                <p className="text-blue-700">{(payrollData.commission_rate * 100).toFixed(1)}%</p>
+              </div>
+              <div>
+                <span className="font-medium text-blue-800">Gross Income:</span>
+                <p className="text-blue-700">
+                  {new Intl.NumberFormat('en-CA', {
+                    style: 'currency',
+                    currency: 'CAD'
+                  }).format(payrollData.earnings?.gross_income || 0)}
+                </p>
+              </div>
+            </>
+          )}
         </div>
+
+        {/* Commission-specific breakdown */}
+        {isCommissionBased && (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm mt-4 pt-4 border-t border-blue-200">
+            <div>
+              <span className="font-medium text-blue-800">Commission Deduction:</span>
+              <p className="text-blue-700">
+                {new Intl.NumberFormat('en-CA', {
+                  style: 'currency',
+                  currency: 'CAD'
+                }).format(payrollData.deductions?.commission_deduction || 0)}
+              </p>
+            </div>
+            <div>
+              <span className="font-medium text-blue-800">POS Fees:</span>
+              <p className="text-blue-700">
+                {new Intl.NumberFormat('en-CA', {
+                  style: 'currency',
+                  currency: 'CAD'
+                }).format(payrollData.earnings?.pos_fees || 0)}
+              </p>
+            </div>
+            {payrollData.earnings?.vacation_pay > 0 && (
+              <div>
+                <span className="font-medium text-blue-800">Vacation Pay:</span>
+                <p className="text-blue-700">
+                  {new Intl.NumberFormat('en-CA', {
+                    style: 'currency',
+                    currency: 'CAD'
+                  }).format(payrollData.earnings?.vacation_pay || 0)}
+                </p>
+              </div>
+            )}
+            <div>
+              <span className="font-medium text-blue-800">GST:</span>
+              <p className="text-blue-700">
+                {new Intl.NumberFormat('en-CA', {
+                  style: 'currency',
+                  currency: 'CAD'
+                }).format(payrollData.earnings?.tax_gst || 0)}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Tax Deductions Display for Employees */}
+        {isEmployee && (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm mt-4 pt-4 border-t border-blue-200">
+            <div>
+              <span className="font-medium text-blue-800">Federal Tax:</span>
+              <p className="text-blue-700">
+                {new Intl.NumberFormat('en-CA', {
+                  style: 'currency',
+                  currency: 'CAD'
+                }).format(payrollData.deductions?.federal_tax || 0)}
+              </p>
+            </div>
+            <div>
+              <span className="font-medium text-blue-800">Provincial Tax:</span>
+              <p className="text-blue-700">
+                {new Intl.NumberFormat('en-CA', {
+                  style: 'currency',
+                  currency: 'CAD'
+                }).format(payrollData.deductions?.provincial_tax || 0)}
+              </p>
+            </div>
+            <div>
+              <span className="font-medium text-blue-800">CPP:</span>
+              <p className="text-blue-700">
+                {new Intl.NumberFormat('en-CA', {
+                  style: 'currency',
+                  currency: 'CAD'
+                }).format(payrollData.deductions?.cpp || 0)}
+              </p>
+            </div>
+            <div>
+              <span className="font-medium text-blue-800">EI:</span>
+              <p className="text-blue-700">
+                {new Intl.NumberFormat('en-CA', {
+                  style: 'currency',
+                  currency: 'CAD'
+                }).format(payrollData.deductions?.ei || 0)}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* YTD Contributions Display */}
+        {isEmployee && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mt-4 pt-4 border-t border-blue-200">
+            <div>
+              <span className="font-medium text-blue-800">YTD CPP Before:</span>
+              <p className="text-blue-700">
+                {new Intl.NumberFormat('en-CA', {
+                  style: 'currency',
+                  currency: 'CAD'
+                }).format((payrollData.breakdown?.cpp_ytd_after || 0) - (payrollData.deductions?.cpp || 0))}
+              </p>
+              <span className="font-medium text-blue-800">YTD CPP After:</span>
+              <p className="text-blue-700">
+                {new Intl.NumberFormat('en-CA', {
+                  style: 'currency',
+                  currency: 'CAD'
+                }).format(payrollData.breakdown?.cpp_ytd_after || 0)}
+              </p>
+            </div>
+            <div>
+              <span className="font-medium text-blue-800">YTD EI Before:</span>
+              <p className="text-blue-700">
+                {new Intl.NumberFormat('en-CA', {
+                  style: 'currency',
+                  currency: 'CAD'
+                }).format((payrollData.breakdown?.ei_ytd_after || 0) - (payrollData.deductions?.ei || 0))}
+              </p>
+              <span className="font-medium text-blue-800">YTD EI After:</span>
+              <p className="text-blue-700">
+                {new Intl.NumberFormat('en-CA', {
+                  style: 'currency',
+                  currency: 'CAD'
+                }).format(payrollData.breakdown?.ei_ytd_after || 0)}
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Actions */}
