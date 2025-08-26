@@ -2057,7 +2057,7 @@ class PayrollViewSet(viewsets.ModelViewSet):
                 return Response(payroll_data, status=status.HTTP_200_OK)
 
             # 1. Calculate Rent Deduction
-            rent_deduction = self._calculate_rent_deduction(user_profile, start_date, end_date)
+            rent_deduction, rent_description = self._calculate_rent_deduction(user_profile, start_date, end_date)
 
             # 2. Calculate Revenue Sharing Deductions (money going OUT)
             revenue_share_deduction, revenue_deduction_details = self._calculate_revenue_sharing_deductions(
@@ -2094,6 +2094,7 @@ class PayrollViewSet(viewsets.ModelViewSet):
 
                 # Add to deductions breakdown
                 payroll_data['deductions']['rent'] = float(rent_deduction)
+                payroll_data['deductions']['rent_description'] = rent_description
                 payroll_data['deductions']['revenue_share_deduction'] = float(revenue_share_deduction)
 
             elif isinstance(payment_detail, CommissionEmployee):
@@ -2148,6 +2149,7 @@ class PayrollViewSet(viewsets.ModelViewSet):
                 payroll_data['totals']['net_payment'] = float(new_net_payment)
                 payroll_data['totals']['total_deductions'] = float(new_total_deductions)
                 payroll_data['deductions']['rent'] = float(rent_deduction)
+                payroll_data['deductions']['rent_description'] = rent_description
                 payroll_data['deductions']['revenue_share_deduction'] = float(revenue_share_deduction)
 
             elif isinstance(payment_detail, HourlyContractor):
@@ -2164,6 +2166,7 @@ class PayrollViewSet(viewsets.ModelViewSet):
                     payroll_data['earnings']['revenue_share_income'] = float(total_revenue_share_income)
 
                 payroll_data['deductions']['rent'] = float(rent_deduction)
+                payroll_data['deductions']['rent_description'] = rent_description
                 payroll_data['deductions']['revenue_share_deduction'] = float(revenue_share_deduction)
 
             elif isinstance(payment_detail, HourlyEmployee):
@@ -2203,6 +2206,7 @@ class PayrollViewSet(viewsets.ModelViewSet):
                 payroll_data['totals']['net_payment'] = float(new_net_payment)
                 payroll_data['totals']['total_deductions'] = float(new_total_deductions)
                 payroll_data['deductions']['rent'] = float(rent_deduction)
+                payroll_data['deductions']['rent_description'] = rent_description
                 payroll_data['deductions']['revenue_share_deduction'] = float(revenue_share_deduction)
 
             # Add breakdown details for debugging/transparency
@@ -2224,6 +2228,43 @@ class PayrollViewSet(viewsets.ModelViewSet):
             print(f"Revenue share income (IN): ${total_revenue_share_income}")
             print(f"Final net payment: ${payroll_data['totals']['net_payment']}")
             print("=== END DEBUG ===")
+
+            # ============ REVENUE SHARING CONTRIBUTION DETAILS ============
+            revenue_sharing_contributions = {
+                'income_contributors': [],  # People who gave money to this user
+                'deduction_recipients': []  # People this user gave money to
+            }
+
+            # Add income contributors (people who gave money to this user)
+            if revenue_income_user_details:
+                for detail in revenue_income_user_details:
+                    revenue_sharing_contributions['income_contributors'].append({
+                        'user_name': detail['from_user'],
+                        'amount': detail['amount'],
+                        'type': 'specific_user'
+                    })
+
+            if revenue_income_student_details:
+                total_student_contribution = float(total_revenue_share_income - revenue_share_income_users)
+                if total_student_contribution > 0:
+                    revenue_sharing_contributions['income_contributors'].append({
+                        'user_name': 'All Students Combined',
+                        'amount': total_student_contribution,
+                        'type': 'student_share',
+                        'student_breakdown': revenue_income_student_details
+                    })
+
+            # Add deduction recipients (people this user gave money to)
+            if revenue_deduction_details:
+                for detail in revenue_deduction_details:
+                    revenue_sharing_contributions['deduction_recipients'].append({
+                        'user_name': detail['payee'],
+                        'amount': detail['amount'],
+                        'type': 'specific_user'
+                    })
+
+            # Add to payroll data
+            payroll_data['revenue_sharing_contributions'] = revenue_sharing_contributions
 
             return Response(payroll_data, status=status.HTTP_200_OK)
 
@@ -3054,12 +3095,13 @@ class PayrollViewSet(viewsets.ModelViewSet):
     def _calculate_rent_deduction(self, user_profile, period_start, period_end):
         """
         Calculate rent deduction if period contains end of month and user has rent role
+        Returns: (rent_amount, rent_description)
         """
         try:
             # Check if user has HasRent additional role
             rent_roles = user_profile.additional_roles.filter(polymorphic_ctype__model='hasrent')
             if not rent_roles.exists():
-                return Decimal('0')
+                return Decimal('0'), ''
 
             # Check if period contains end of any month
             current_date = period_start
@@ -3075,13 +3117,14 @@ class PayrollViewSet(viewsets.ModelViewSet):
 
             if contains_month_end:
                 rent_role = rent_roles.first()
-                return Decimal(str(rent_role.monthly_rent))
+                print(rent_role.description)
+                return Decimal(str(rent_role.monthly_rent)), rent_role.description
 
-            return Decimal('0')
+            return Decimal('0'), ''
 
         except Exception as e:
             print(f"Error calculating rent deduction: {str(e)}")
-            return Decimal('0')
+            return Decimal('0'), ''
 
     def _calculate_revenue_sharing_deductions(self, user, user_profile, gross_income):
         """
@@ -3566,6 +3609,8 @@ class PayrollViewSet(viewsets.ModelViewSet):
 
             # Create PayrollRecords entry after successful email sending
             try:
+                from django.utils import timezone
+                import uuid
 
                 # Generate unique payroll number
                 payroll_number = f"PAY-{timezone.now().strftime('%Y%m%d')}-{user.id:04d}-{uuid.uuid4().hex[:6].upper()}"
@@ -3587,7 +3632,7 @@ class PayrollViewSet(viewsets.ModelViewSet):
                 else:
                     subtotal_income = float(earnings.get('regular_pay', 0) or earnings.get('salary', 0))
 
-                PayrollRecords.objects.create(
+                payroll_record = PayrollRecords.objects.create(
                     user=user,
                     email=user.email,
                     period_start=period_start,
@@ -3600,7 +3645,7 @@ class PayrollViewSet(viewsets.ModelViewSet):
                     hours_worked=float(payroll_data.get('total_hours', 0)),
                     vacation_pay=float(earnings.get('vacation_pay', 0)),
                     overtime_pay=float(earnings.get('overtime_pay', 0)),
-                    revenue_share_income=0.000,  # Not implemented yet
+                    revenue_share_income=float(earnings.get('revenue_share_income', 0)),
                     gst=float(earnings.get('tax_gst', 0)),
                     total_income=float(totals.get('total_earnings', 0)),
 
@@ -3611,9 +3656,9 @@ class PayrollViewSet(viewsets.ModelViewSet):
                     federal_income_tax=float(deductions.get('federal_tax', 0)),
                     cpp_contrib=float(deductions.get('cpp', 0)),
                     ei_contrib=float(deductions.get('ei', 0)),
-                    rent=0.000,  # Not implemented yet
-                    revenue_share_deduction=0.000,  # Not implemented yet
-                    revenue_share_deduction_payee=0.000,  # Not implemented yet
+                    rent=float(deductions.get('rent', 0)),
+                    revenue_share_deduction=float(deductions.get('revenue_share_deduction', 0)),
+                    revenue_share_deduction_payee=None,  # Will be set below if applicable
                     total_deductions=float(totals.get('total_deductions', 0)),
 
                     # Additional fields
@@ -3622,6 +3667,63 @@ class PayrollViewSet(viewsets.ModelViewSet):
                 )
 
                 print(f"PayrollRecords entry created: {payroll_number}")
+
+                # ============ CREATE REVENUE SHARE CONTRIBUTION RECORDS ============
+                revenue_contributions = payroll_data.get('revenue_sharing_contributions', {})
+
+                # Create contribution records for revenue sharing income (money coming IN)
+                if revenue_contributions.get('income_contributors'):
+                    for contributor in revenue_contributions['income_contributors']:
+                        # Find the contributing user (skip if it's "All Students Combined")
+                        if contributor['user_name'] != 'All Students Combined':
+                            try:
+                                contributing_user = User.objects.get(username=contributor['user_name'])
+                                RevenueShareContribution.objects.create(
+                                    payroll_record=payroll_record,
+                                    contributing_user=contributing_user,
+                                    amount_contributed=float(contributor['amount']),
+                                    contribution_type=contributor['type']
+                                )
+                                print(
+                                    f"Created contribution record: {contributing_user.username} -> {user.username} (${contributor['amount']})")
+                            except User.DoesNotExist:
+                                print(f"Warning: Contributing user '{contributor['user_name']}' not found")
+                        else:
+                            # Handle student contributions - create records for each student
+                            if contributor.get('student_breakdown'):
+                                total_student_net = sum(float(s['net']) for s in contributor['student_breakdown'])
+                                for student_detail in contributor['student_breakdown']:
+                                    try:
+                                        student_user = User.objects.get(username=student_detail['student'])
+                                        # Calculate this student's share of the total student contribution
+                                        if total_student_net > 0:
+                                            student_share = float(contributor['amount']) * (
+                                                        float(student_detail['net']) / total_student_net)
+                                        else:
+                                            student_share = 0.0
+
+                                        RevenueShareContribution.objects.create(
+                                            payroll_record=payroll_record,
+                                            contributing_user=student_user,
+                                            amount_contributed=student_share,
+                                            contribution_type='student_share'
+                                        )
+                                        print(
+                                            f"Created student contribution record: {student_user.username} -> {user.username} (${student_share:.2f})")
+                                    except User.DoesNotExist:
+                                        print(f"Warning: Student user '{student_detail['student']}' not found")
+
+                # Set revenue_share_deduction_payee if there's only one recipient
+                if revenue_contributions.get('deduction_recipients') and len(
+                        revenue_contributions['deduction_recipients']) == 1:
+                    recipient_name = revenue_contributions['deduction_recipients'][0]['user_name']
+                    try:
+                        recipient_user = User.objects.get(username=recipient_name)
+                        payroll_record.revenue_share_deduction_payee = recipient_user
+                        payroll_record.save()
+                        print(f"Set revenue share deduction payee: {recipient_user.username}")
+                    except User.DoesNotExist:
+                        print(f"Warning: Deduction recipient '{recipient_name}' not found")
 
             except Exception as record_error:
                 print(f"Error creating PayrollRecords entry: {str(record_error)}")
@@ -3687,7 +3789,12 @@ class PayrollViewSet(viewsets.ModelViewSet):
                 'company_name': 'Alternative Therapy On the Go Inc.',
                 'company_address': '23 - 7330 122nd Street, Surrey, BC V3W 1B4',
                 'rent': format_currency(deductions.get('rent', 0)),
+                'rent_description': deductions.get('rent_description', ''),
                 'revenue_share_income': format_currency(earnings.get('revenue_share_income', 0)),
+                'revenue_sharing_contributions': payroll_data.get('revenue_sharing_contributions', {
+                    'income_contributors': [],
+                    'deduction_recipients': []
+                }),
                 'revenue_share_deduction': format_currency(deductions.get('revenue_share_deduction', 0)),
             }
 

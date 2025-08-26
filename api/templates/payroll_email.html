@@ -205,94 +205,86 @@
             </td>
         </tr>
 
-        <!-- Commission Breakdown Section (only show for commission-based roles) -->
-        {% if "Commission" in role_type %}
-        <tr>
-            <td style="padding: 20px; background-color: #f0f8ff; border-top: 1px solid #ddd;">
-                <div style="font-weight: bold; margin-bottom: 15px; color: #2c5aa0;">Commission Breakdown</div>
-                <table style="width: 100%; font-size: 14px;">
-                    <tr>
-                        <td style="padding: 5px 0; width: 60%;">Commission Rate:</td>
-                        <td style="text-align: right; font-weight: bold;">{{ commission_rate }}</td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 5px 0;">Adjusted Total (before tax):</td>
-                        <td style="text-align: right;">${{ adjusted_total }}</td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 5px 0;">GST:</td>
-                        <td style="text-align: right;">${{ tax_gst }}</td>
-                    </tr>
-                    <tr style="border-top: 1px solid #ccc;">
-                        <td style="padding: 5px 0; font-weight: bold;">Gross Income:</td>
-                        <td style="text-align: right; font-weight: bold;">${{ gross_income }}</td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 5px 0; color: #d32f2f;">Less: Commission Deduction:</td>
-                        <td style="text-align: right; color: #d32f2f;">-${{ commission_deduction }}</td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 5px 0; color: #d32f2f;">Less: POS Processing Fees:</td>
-                        <td style="text-align: right; color: #d32f2f;">-${{ pos_fees }}</td>
-                    </tr>
-                    {% if earnings.vacation_pay and earnings.vacation_pay != "0.00" %}
-                    <tr>
-                        <td style="padding: 5px 0; color: #2e7d32;">Plus: Vacation Pay:</td>
-                        <td style="text-align: right; color: #2e7d32;">+${{ earnings.vacation_pay }}</td>
-                    </tr>
-                    {% endif %}
-                    {% if revenue_share_income and revenue_share_income != "0.00" %}
-                    <tr>
-                        <td style="padding: 5px 0; color: #2e7d32;">Plus: Revenue Share Income:</td>
-                        <td style="text-align: right; color: #2e7d32;">+${{ revenue_share_income }}</td>
-                    </tr>
-                    {% endif %}
-                    {% if rent and rent != "0.00" %}
-                    <tr>
-                        <td style="padding: 5px 0; color: #d32f2f;">Less: Rent:</td>
-                        <td style="text-align: right; color: #d32f2f;">-${{ rent }}</td>
-                    </tr>
-                    {% endif %}
-                    {% if revenue_share_deduction and revenue_share_deduction != "0.00" %}
-                    <tr>
-                        <td style="padding: 5px 0; color: #d32f2f;">Less: Revenue Share Deduction:</td>
-                        <td style="text-align: right; color: #d32f2f;">-${{ revenue_share_deduction }}</td>
-                    </tr>
-                    {% endif %}
-                    <tr>
-                        <td style="padding: 5px 0;">Commission Earned (Your Share):</td>
-                        <td style="text-align: right; font-weight: bold;">${{ commission_earned }}</td>
-                    </tr>
-                </table>
-            </td>
-        </tr>
-        {% endif %}
 
-        <!-- Revenue Sharing & Rent Details Section (for all roles) -->
+        <!-- Revenue Sharing & Rent Details Section (enhanced with contributor/recipient details) -->
         {% if revenue_share_income and revenue_share_income != "0.00" or rent and rent != "0.00" or revenue_share_deduction and revenue_share_deduction != "0.00" %}
         <tr>
             <td style="padding: 20px; background-color: #fff3cd; border-top: 1px solid #ddd;">
                 <div style="font-weight: bold; margin-bottom: 15px; color: #856404;">Revenue Sharing & Rent Details</div>
-                <table style="width: 100%; font-size: 14px;">
-                    {% if revenue_share_income and revenue_share_income != "0.00" %}
-                    <tr>
-                        <td style="padding: 5px 0; color: #2e7d32;">Revenue Share Income (from others):</td>
-                        <td style="text-align: right; color: #2e7d32;">+${{ revenue_share_income }}</td>
-                    </tr>
+
+                <!-- Revenue Share Income Details -->
+                {% if revenue_share_income and revenue_share_income != "0.00" %}
+                <div style="margin-bottom: 15px;">
+                    <div style="font-weight: bold; color: #2e7d32; margin-bottom: 8px;">
+                        Revenue Share Income: +${{ revenue_share_income }}
+                    </div>
+                    {% if revenue_sharing_contributions.income_contributors %}
+                    <div style="margin-left: 15px; background-color: #f1f8e9; padding: 10px; border-radius: 4px;">
+                        <div style="font-size: 12px; color: #2e7d32; margin-bottom: 5px; font-weight: bold;">Received from:</div>
+                        {% for contributor in revenue_sharing_contributions.income_contributors %}
+                        <div style="font-size: 12px; color: #2e7d32; display: flex; justify-content: space-between; margin-bottom: 3px;">
+                            <span>{{ contributor.user_name }}:</span>
+                            <span style="font-weight: bold;">${{ contributor.amount|floatformat:2 }}</span>
+                        </div>
+                        {% endfor %}
+                    </div>
                     {% endif %}
-                    {% if revenue_share_deduction and revenue_share_deduction != "0.00" %}
-                    <tr>
-                        <td style="padding: 5px 0; color: #d32f2f;">Revenue Share Deduction (to others):</td>
-                        <td style="text-align: right; color: #d32f2f;">-${{ revenue_share_deduction }}</td>
-                    </tr>
+                </div>
+                {% endif %}
+
+                <!-- Revenue Share Deduction Details -->
+                {% if revenue_share_deduction and revenue_share_deduction != "0.00" %}
+                <div style="margin-bottom: 15px;">
+                    <div style="font-weight: bold; color: #d32f2f; margin-bottom: 8px;">
+                        Revenue Share Deduction: -${{ revenue_share_deduction }}
+                    </div>
+                    {% if revenue_sharing_contributions.deduction_recipients %}
+                    <div style="margin-left: 15px; background-color: #ffebee; padding: 10px; border-radius: 4px;">
+                        <div style="font-size: 12px; color: #d32f2f; margin-bottom: 5px; font-weight: bold;">Paid to:</div>
+                        {% for recipient in revenue_sharing_contributions.deduction_recipients %}
+                        <div style="font-size: 12px; color: #d32f2f; display: flex; justify-content: space-between; margin-bottom: 3px;">
+                            <span>{{ recipient.user_name }}:</span>
+                            <span style="font-weight: bold;">${{ recipient.amount|floatformat:2 }}</span>
+                        </div>
+                        {% endfor %}
+                    </div>
                     {% endif %}
-                    {% if rent and rent != "0.00" %}
-                    <tr>
-                        <td style="padding: 5px 0; color: #d32f2f;">Monthly Rent Deduction:</td>
-                        <td style="text-align: right; color: #d32f2f;">-${{ rent }}</td>
-                    </tr>
-                    {% endif %}
-                </table>
+                </div>
+                {% endif %}
+
+                <!-- Rent Deduction -->
+                {% if rent and rent != "0.00" %}
+                <div style="margin-bottom: 15px;">
+                    <div style="font-weight: bold; color: #d32f2f; margin-bottom: 8px;">
+                        Monthly Rent Deduction: -${{ rent }}
+                    </div>
+                    <div style="margin-left: 15px; font-size: 12px; color: #d32f2f;">
+                        {{ rent_description|default:"Monthly rent charge for clinic space" }}
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Student Breakdown (if applicable) -->
+                {% if revenue_share_income and revenue_sharing_contributions.income_contributors %}
+                    {% for contributor in revenue_sharing_contributions.income_contributors %}
+                        {% if contributor.type == "student_share" and contributor.student_breakdown %}
+                        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #f0ad4e;">
+                            <div style="font-size: 12px; color: #856404; font-weight: bold; margin-bottom: 8px;">
+                                Student Revenue Breakdown:
+                            </div>
+                            <div style="margin-left: 15px; background-color: #fefbf3; padding: 10px; border-radius: 4px; max-height: 120px; overflow-y: auto;">
+                                {% for student in contributor.student_breakdown %}
+                                <div style="font-size: 11px; color: #856404; margin-bottom: 3px;">
+                                    <strong>{{ student.student }}:</strong> Gross ${{ student.gross_income|floatformat:2 }},
+                                    POS Fees ${{ student.pos_fees|floatformat:2 }},
+                                    Net ${{ student.net|floatformat:2 }}
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+                    {% endfor %}
+                {% endif %}
             </td>
         </tr>
         {% endif %}

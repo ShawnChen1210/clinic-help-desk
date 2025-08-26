@@ -5,3 +5,4 @@ from .models import *
 admin.site.register(UserProfile)
 admin.site.register(PrimaryPaymentRole)
 admin.site.register(RevenueSharing)
+admin.site.register(AdditionalPaymentRole)

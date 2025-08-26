@@ -91,6 +91,12 @@ class PayrollRecords(models.Model):
     vacation_pay = models.DecimalField(max_digits=8, decimal_places=3)
     overtime_pay = models.DecimalField(max_digits=8, decimal_places=3)
     revenue_share_income = models.DecimalField(max_digits=8, decimal_places=3)
+    revenue_share_income_payers = models.ManyToManyField(
+        User,
+        through='RevenueShareContribution',
+        related_name='revenue_share_income_payers_set',
+        blank=True
+    )
     gst = models.DecimalField(max_digits=8, decimal_places=3)
     total_income = models.DecimalField(max_digits=8, decimal_places=3)
 
@@ -103,8 +109,17 @@ class PayrollRecords(models.Model):
     ei_contrib = models.DecimalField(max_digits=8, decimal_places=3)
     rent = models.DecimalField(max_digits=10, decimal_places=3)
     revenue_share_deduction = models.DecimalField(max_digits=8, decimal_places=3)
-    revenue_share_deduction_payee = models.DecimalField(max_digits=8, decimal_places=3)
+    revenue_share_deduction_payee = models.ForeignKey(User, on_delete=models.CASCADE, related_name='revenue_share_deduction_payee_set', null=True, blank=True)
     total_deductions = models.DecimalField(max_digits=10, decimal_places=3)
 
     notes = models.TextField(blank=True)
     payroll_number = models.CharField(max_length=50, unique=True)
+
+class RevenueShareContribution(models.Model):
+    payroll_record = models.ForeignKey('PayrollRecords', on_delete=models.CASCADE)
+    contributing_user = models.ForeignKey(User, on_delete=models.CASCADE)
+    amount_contributed = models.DecimalField(max_digits=8, decimal_places=3)
+    contribution_type = models.CharField(max_length=50, choices=[
+        ('specific_user', 'From Specific User'),
+        ('student_share', 'From Student Revenue Share'),
+    ])

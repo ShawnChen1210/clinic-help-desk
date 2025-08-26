@@ -352,18 +352,72 @@ export default function PayrollSummaryTable({ payrollData, companyInfo, classNam
       {/* Revenue Sharing Details Section */}
       {(showRevenueShareIncome || showRevenueShareDeduction || showRentDeduction) && (
         <div className="border-t border-gray-300 p-4 bg-blue-50">
-          <div className="text-sm font-medium text-blue-900 mb-2">Revenue Sharing & Rent Details</div>
-          <div className="text-xs text-blue-800 space-y-1">
-            {showRevenueShareIncome && (
-              <div>Revenue Share Income: {formatCurrency(payrollData.earnings?.revenue_share_income)}</div>
-            )}
-            {showRevenueShareDeduction && (
-              <div>Revenue Share Deduction: {formatCurrency(payrollData.deductions?.revenue_share_deduction)}</div>
-            )}
-            {showRentDeduction && (
-              <div>Rent Deduction: {formatCurrency(payrollData.deductions?.rent)}</div>
-            )}
-          </div>
+          <div className="text-sm font-medium text-blue-900 mb-3">Revenue Sharing & Rent Details</div>
+
+          {/* Revenue Share Income Details */}
+          {showRevenueShareIncome && payrollData.revenue_sharing_contributions?.income_contributors && (
+            <div className="mb-3">
+              <div className="text-xs font-medium text-green-700 mb-1">
+                Revenue Share Income: {formatCurrency(payrollData.earnings?.revenue_share_income)}
+              </div>
+              <div className="ml-3 space-y-1">
+                {payrollData.revenue_sharing_contributions.income_contributors.map((contributor, index) => (
+                  <div key={index} className="text-xs text-green-600 flex justify-between">
+                    <span>From {contributor.user_name}:</span>
+                    <span className="font-medium">{formatCurrency(contributor.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Revenue Share Deduction Details */}
+          {showRevenueShareDeduction && payrollData.revenue_sharing_contributions?.deduction_recipients && (
+            <div className="mb-3">
+              <div className="text-xs font-medium text-red-700 mb-1">
+                Revenue Share Deduction: {formatCurrency(payrollData.deductions?.revenue_share_deduction)}
+              </div>
+              <div className="ml-3 space-y-1">
+                {payrollData.revenue_sharing_contributions.deduction_recipients.map((recipient, index) => (
+                  <div key={index} className="text-xs text-red-600 flex justify-between">
+                    <span>To {recipient.user_name}:</span>
+                    <span className="font-medium">{formatCurrency(recipient.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Rent Deduction */}
+          {showRentDeduction && (
+            <div className="mb-3">
+              <div className="text-xs font-medium text-red-700 mb-1">
+                Rent Deduction: {formatCurrency(payrollData.deductions?.rent)}
+              </div>
+              <div className="ml-3">
+                <div className="text-xs text-red-600">
+                  {payrollData.deductions?.rent_description || 'Monthly rent charge'}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Student Breakdown (if applicable) */}
+          {showRevenueShareIncome &&
+           payrollData.revenue_sharing_contributions?.income_contributors?.find(c => c.type === 'student_share') && (
+            <div className="mt-3 pt-2 border-t border-blue-200">
+              <div className="text-xs font-medium text-blue-700 mb-1">Student Revenue Breakdown:</div>
+              <div className="ml-3 space-y-1 max-h-32 overflow-y-auto">
+                {payrollData.revenue_sharing_contributions.income_contributors
+                  .find(c => c.type === 'student_share')?.student_breakdown?.map((student, index) => (
+                  <div key={index} className="text-xs text-blue-600 flex justify-between">
+                    <span>{student.student} (Net: {formatCurrency(student.net)}):</span>
+                    <span className="font-medium">Share calculated</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
