@@ -3,3 +3,5 @@ from .models import *
 
 # Register your models here.
 admin.site.register(UserProfile)
+admin.site.register(PrimaryPaymentRole)
+admin.site.register(RevenueSharing)

@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import User
 from polymorphic.models import PolymorphicModel
+from django.core.exceptions import ValidationError
 
 
 class UserProfile(models.Model):
@@ -57,6 +58,8 @@ class CommissionContractor(PrimaryPaymentRole):
     def calculate_pay(self, income):
         return income * self.commission_rate
 
+class Student(PrimaryPaymentRole):
+    pass
 
 class AdditionalPaymentRole(PolymorphicModel):
     user_profile = models.ForeignKey(
@@ -70,6 +73,17 @@ class ProfitSharing(AdditionalPaymentRole):
     sharing_rate = models.DecimalField(max_digits=8, decimal_places=2)
 
 class RevenueSharing(AdditionalPaymentRole):
+    TARGET_CHOICES = [
+        ('specific_user', 'Specific User'),
+        ('all_students', 'All Students'),
+    ]
+
+    target_type = models.CharField(
+        max_length=20,
+        choices=TARGET_CHOICES,
+        default='specific_user'
+    )
+
     target_user = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
@@ -79,6 +93,30 @@ class RevenueSharing(AdditionalPaymentRole):
     )
     sharing_rate = models.DecimalField(max_digits=8, decimal_places=2)
 
+    def clean(self):
+
+
+        if self.target_type == 'specific_user' and not self.target_user:
+            raise ValidationError("target_user is required when target_type is 'specific_user'")
+
+        if self.target_type == 'all_students' and self.target_user:
+            raise ValidationError("target_user should be empty when target_type is 'all_students'")
+
+    def get_target_users(self):
+        """
+        Returns a queryset of target users based on the target_type
+        """
+        if self.target_type == 'specific_user':
+            return User.objects.filter(id=self.target_user.id) if self.target_user else User.objects.none()
+
+        elif self.target_type == 'all_students':
+            # Get all users with Student role # Import your Student model
+            student_profiles = Student.objects.values_list('user_profile__user', flat=True)
+            return User.objects.filter(id__in=student_profiles)
+
+        return User.objects.none()
+
 class HasRent(AdditionalPaymentRole):
     monthly_rent = models.DecimalField(max_digits=8, decimal_places=2)
+
 

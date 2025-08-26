@@ -121,12 +121,19 @@
                         </td>
                     </tr>
 
-                    <!-- Fourth Row - Additional Deductions -->
+                    <!-- Fourth Row - Revenue Share Income -->
                     <tr>
-                        <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
-                        <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
-                        {% if "Commission" not in role_type %}<td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>{% endif %}
-                        <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
+                        {% if revenue_share_income and revenue_share_income != "0.00" %}
+                            <td style="border: 1px solid #333; padding: 8px;">Revenue Share Income</td>
+                            <td style="border: 1px solid #333; padding: 8px;">-</td>
+                            {% if "Commission" not in role_type %}<td style="border: 1px solid #333; padding: 8px; text-align: right;">-</td>{% endif %}
+                            <td style="border: 1px solid #333; padding: 8px; text-align: right;">${{ revenue_share_income }}</td>
+                        {% else %}
+                            <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
+                            <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
+                            {% if "Commission" not in role_type %}<td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>{% endif %}
+                            <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
+                        {% endif %}
                         <td style="border: 1px solid #333; padding: 8px;">
                             {% if "Commission" in role_type and "Employee" in role_type %}Provincial Tax{% else %}EI{% endif %}
                         </td>
@@ -135,27 +142,57 @@
                         </td>
                     </tr>
 
-                    <!-- Fifth Row - CPP for Commission Employees -->
-                    {% if "Commission" in role_type and "Employee" in role_type %}
+                    <!-- Fifth Row - Rent Deduction -->
                     <tr>
                         <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
                         <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
+                        {% if "Commission" not in role_type %}<td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>{% endif %}
                         <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
-                        <td style="border: 1px solid #333; padding: 8px;">CPP</td>
-                        <td style="border: 1px solid #333; padding: 8px; text-align: right;">${{ cpp }}</td>
+                        <td style="border: 1px solid #333; padding: 8px;">
+                            {% if rent and rent != "0.00" %}
+                                Rent
+                            {% elif "Commission" in role_type and "Employee" in role_type %}
+                                CPP
+                            {% else %}
+                                &nbsp;
+                            {% endif %}
+                        </td>
+                        <td style="border: 1px solid #333; padding: 8px; text-align: right;">
+                            {% if rent and rent != "0.00" %}
+                                ${{ rent }}
+                            {% elif "Commission" in role_type and "Employee" in role_type %}
+                                ${{ cpp }}
+                            {% else %}
+                                &nbsp;
+                            {% endif %}
+                        </td>
                     </tr>
-                    {% endif %}
 
-                    <!-- Sixth Row - EI for Commission Employees -->
-                    {% if "Commission" in role_type and "Employee" in role_type %}
+                    <!-- Sixth Row - Revenue Share Deduction -->
                     <tr>
                         <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
                         <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
+                        {% if "Commission" not in role_type %}<td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>{% endif %}
                         <td style="border: 1px solid #333; padding: 8px;">&nbsp;</td>
-                        <td style="border: 1px solid #333; padding: 8px;">EI</td>
-                        <td style="border: 1px solid #333; padding: 8px; text-align: right;">${{ ei }}</td>
+                        <td style="border: 1px solid #333; padding: 8px;">
+                            {% if revenue_share_deduction and revenue_share_deduction != "0.00" %}
+                                Revenue Share Deduction
+                            {% elif "Commission" in role_type and "Employee" in role_type %}
+                                EI
+                            {% else %}
+                                &nbsp;
+                            {% endif %}
+                        </td>
+                        <td style="border: 1px solid #333; padding: 8px; text-align: right;">
+                            {% if revenue_share_deduction and revenue_share_deduction != "0.00" %}
+                                ${{ revenue_share_deduction }}
+                            {% elif "Commission" in role_type and "Employee" in role_type %}
+                                ${{ ei }}
+                            {% else %}
+                                &nbsp;
+                            {% endif %}
+                        </td>
                     </tr>
-                    {% endif %}
 
                     <!-- Total Row -->
                     <tr>
@@ -204,10 +241,57 @@
                         <td style="text-align: right; color: #2e7d32;">+${{ earnings.vacation_pay }}</td>
                     </tr>
                     {% endif %}
+                    {% if revenue_share_income and revenue_share_income != "0.00" %}
+                    <tr>
+                        <td style="padding: 5px 0; color: #2e7d32;">Plus: Revenue Share Income:</td>
+                        <td style="text-align: right; color: #2e7d32;">+${{ revenue_share_income }}</td>
+                    </tr>
+                    {% endif %}
+                    {% if rent and rent != "0.00" %}
+                    <tr>
+                        <td style="padding: 5px 0; color: #d32f2f;">Less: Rent:</td>
+                        <td style="text-align: right; color: #d32f2f;">-${{ rent }}</td>
+                    </tr>
+                    {% endif %}
+                    {% if revenue_share_deduction and revenue_share_deduction != "0.00" %}
+                    <tr>
+                        <td style="padding: 5px 0; color: #d32f2f;">Less: Revenue Share Deduction:</td>
+                        <td style="text-align: right; color: #d32f2f;">-${{ revenue_share_deduction }}</td>
+                    </tr>
+                    {% endif %}
                     <tr>
                         <td style="padding: 5px 0;">Commission Earned (Your Share):</td>
                         <td style="text-align: right; font-weight: bold;">${{ commission_earned }}</td>
                     </tr>
+                </table>
+            </td>
+        </tr>
+        {% endif %}
+
+        <!-- Revenue Sharing & Rent Details Section (for all roles) -->
+        {% if revenue_share_income and revenue_share_income != "0.00" or rent and rent != "0.00" or revenue_share_deduction and revenue_share_deduction != "0.00" %}
+        <tr>
+            <td style="padding: 20px; background-color: #fff3cd; border-top: 1px solid #ddd;">
+                <div style="font-weight: bold; margin-bottom: 15px; color: #856404;">Revenue Sharing & Rent Details</div>
+                <table style="width: 100%; font-size: 14px;">
+                    {% if revenue_share_income and revenue_share_income != "0.00" %}
+                    <tr>
+                        <td style="padding: 5px 0; color: #2e7d32;">Revenue Share Income (from others):</td>
+                        <td style="text-align: right; color: #2e7d32;">+${{ revenue_share_income }}</td>
+                    </tr>
+                    {% endif %}
+                    {% if revenue_share_deduction and revenue_share_deduction != "0.00" %}
+                    <tr>
+                        <td style="padding: 5px 0; color: #d32f2f;">Revenue Share Deduction (to others):</td>
+                        <td style="text-align: right; color: #d32f2f;">-${{ revenue_share_deduction }}</td>
+                    </tr>
+                    {% endif %}
+                    {% if rent and rent != "0.00" %}
+                    <tr>
+                        <td style="padding: 5px 0; color: #d32f2f;">Monthly Rent Deduction:</td>
+                        <td style="text-align: right; color: #d32f2f;">-${{ rent }}</td>
+                    </tr>
+                    {% endif %}
                 </table>
             </td>
         </tr>

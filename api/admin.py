@@ -4,3 +4,4 @@ from .models import *
 admin.site.register(Clinic)
 admin.site.register(ClinicSpreadsheet)
 admin.site.register(SiteSettings)
+admin.site.register(PayrollRecords)

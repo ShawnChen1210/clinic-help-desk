@@ -75,3 +75,36 @@ class SiteSettings(models.Model):
     ei_cap = models.DecimalField(max_digits=8, decimal_places=3)
     vacation_pay_rate = models.DecimalField(max_digits=8, decimal_places=3)
     overtime_pay_rate = models.DecimalField(max_digits=8, decimal_places=3)
+
+class PayrollRecords(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    email = models.EmailField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    period_start = models.DateField()
+    period_end = models.DateField()
+    clinic = models.ForeignKey(Clinic, on_delete=models.CASCADE, null=True, blank=True)
+    role_type = models.CharField(max_length=50)
+
+    # Income
+    subtotal_income = models.DecimalField(max_digits=8, decimal_places=3)
+    hours_worked = models.DecimalField(max_digits=8, decimal_places=3)
+    vacation_pay = models.DecimalField(max_digits=8, decimal_places=3)
+    overtime_pay = models.DecimalField(max_digits=8, decimal_places=3)
+    revenue_share_income = models.DecimalField(max_digits=8, decimal_places=3)
+    gst = models.DecimalField(max_digits=8, decimal_places=3)
+    total_income = models.DecimalField(max_digits=8, decimal_places=3)
+
+    # Deductions
+    commission_deduction = models.DecimalField(max_digits=8, decimal_places=3)
+    pos_fees = models.DecimalField(max_digits=8, decimal_places=3)
+    provincial_income_tax = models.DecimalField(max_digits=8, decimal_places=3)
+    federal_income_tax = models.DecimalField(max_digits=8, decimal_places=3)
+    cpp_contrib = models.DecimalField(max_digits=8, decimal_places=3)
+    ei_contrib = models.DecimalField(max_digits=8, decimal_places=3)
+    rent = models.DecimalField(max_digits=10, decimal_places=3)
+    revenue_share_deduction = models.DecimalField(max_digits=8, decimal_places=3)
+    revenue_share_deduction_payee = models.DecimalField(max_digits=8, decimal_places=3)
+    total_deductions = models.DecimalField(max_digits=10, decimal_places=3)
+
+    notes = models.TextField(blank=True)
+    payroll_number = models.CharField(max_length=50, unique=True)

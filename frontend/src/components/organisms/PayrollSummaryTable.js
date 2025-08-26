@@ -17,10 +17,13 @@ export default function PayrollSummaryTable({ payrollData, companyInfo, classNam
   const isHourlyBased = payrollData.role_type?.includes('Hourly') || false;
   const isEmployee = payrollData.role_type?.includes('Employee') || false;
 
-  // Determine which pay types to show for hourly employees
+  // Determine which pay types to show
   const showOvertimePay = isHourlyBased && ((payrollData.breakdown?.overtime_hours > 0) || (payrollData.earnings?.overtime_pay > 0));
   const showVacationPay = (isHourlyBased && payrollData.earnings?.vacation_pay > 0) ||
                          (isCommissionBased && isEmployee && payrollData.earnings?.vacation_pay > 0);
+  const showRevenueShareIncome = payrollData.earnings?.revenue_share_income > 0;
+  const showRentDeduction = payrollData.deductions?.rent > 0;
+  const showRevenueShareDeduction = payrollData.deductions?.revenue_share_deduction > 0;
 
   return (
     <div className={`bg-white border border-gray-300 ${className}`}>
@@ -63,8 +66,7 @@ export default function PayrollSummaryTable({ payrollData, companyInfo, classNam
         </div>
 
         {/* Sub-headers */}
-        <div
-            className={`grid ${isCommissionBased ? 'grid-cols-3' : 'grid-cols-4'} col-span-1 border-r border-gray-300`}>
+        <div className={`grid ${isCommissionBased ? 'grid-cols-3' : 'grid-cols-4'} col-span-1 border-r border-gray-300`}>
           <div className="bg-gray-50 border-b border-r border-gray-300 p-2 text-xs font-medium text-center">
             {isCommissionBased ? 'Income Type' : 'Pay Type'}
           </div>
@@ -72,25 +74,22 @@ export default function PayrollSummaryTable({ payrollData, companyInfo, classNam
             {isCommissionBased ? 'Commission Rate' : 'Hours'}
           </div>
           {!isCommissionBased && (
-              <div
-                  className="bg-gray-50 border-b border-r border-gray-300 p-2 text-xs font-medium text-center">Rate</div>
+              <div className="bg-gray-50 border-b border-r border-gray-300 p-2 text-xs font-medium text-center">Rate</div>
           )}
           <div className="bg-gray-50 border-b border-gray-300 p-2 text-xs font-medium text-center">Amount</div>
         </div>
         <div className="grid grid-cols-2 col-span-1">
-          <div className="bg-gray-50 border-b border-r border-gray-300 p-2 text-xs font-medium text-center">Deductions
-          </div>
+          <div className="bg-gray-50 border-b border-r border-gray-300 p-2 text-xs font-medium text-center">Deductions</div>
           <div className="bg-gray-50 border-b border-gray-300 p-2 text-xs font-medium text-center">Amount</div>
         </div>
 
         {/* First Row - Primary Income */}
-        <div
-            className={`grid ${isCommissionBased ? 'grid-cols-3' : 'grid-cols-4'} col-span-1 border-r border-gray-300`}>
+        <div className={`grid ${isCommissionBased ? 'grid-cols-3' : 'grid-cols-4'} col-span-1 border-r border-gray-300`}>
           {isCommissionBased ? (
               <>
                 <div className="border-b border-r border-gray-300 p-2 text-xs">Gross Income (GST Included)</div>
                 <div className="border-b border-r border-gray-300 p-2 text-xs text-right">
-                  {(payrollData.commission_rate * 100)}%
+                  {(payrollData.commission_rate * 100).toFixed(1)}%
                 </div>
                 <div className="border-b border-gray-300 p-2 text-xs text-right">
                   {formatCurrency(payrollData.earnings?.gross_income)}
@@ -124,8 +123,7 @@ export default function PayrollSummaryTable({ payrollData, companyInfo, classNam
         </div>
 
         {/* Second Row */}
-        <div
-            className={`grid ${isCommissionBased ? 'grid-cols-3' : 'grid-cols-4'} col-span-1 border-r border-gray-300`}>
+        <div className={`grid ${isCommissionBased ? 'grid-cols-3' : 'grid-cols-4'} col-span-1 border-r border-gray-300`}>
           {isCommissionBased ? (
               <>
                 <div className="border-b border-r border-gray-300 p-2 text-xs">GST</div>
@@ -151,7 +149,7 @@ export default function PayrollSummaryTable({ payrollData, companyInfo, classNam
               <>
                 <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
                 <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
-                <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
+                {!isCommissionBased && <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>}
                 <div className="border-b border-gray-300 p-2 text-xs">&nbsp;</div>
               </>
           )}
@@ -168,7 +166,7 @@ export default function PayrollSummaryTable({ payrollData, companyInfo, classNam
           </div>
         </div>
 
-        {/* Third Row - Vacation Pay or Empty */}
+        {/* Third Row - Vacation Pay */}
         <div className={`grid ${isCommissionBased ? 'grid-cols-3' : 'grid-cols-4'} col-span-1 border-r border-gray-300`}>
           {showVacationPay ? (
             <>
@@ -211,12 +209,25 @@ export default function PayrollSummaryTable({ payrollData, companyInfo, classNam
           </div>
         </div>
 
-        {/* Fourth Row - Empty or Additional Deductions */}
+        {/* Fourth Row - Revenue Share Income or Empty */}
         <div className={`grid ${isCommissionBased ? 'grid-cols-3' : 'grid-cols-4'} col-span-1 border-r border-gray-300`}>
-          <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
-          <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
-          {!isCommissionBased && <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>}
-          <div className="border-b border-gray-300 p-2 text-xs">&nbsp;</div>
+          {showRevenueShareIncome ? (
+            <>
+              <div className="border-b border-r border-gray-300 p-2 text-xs">Revenue Share Income</div>
+              <div className="border-b border-r border-gray-300 p-2 text-xs text-right">-</div>
+              {!isCommissionBased && <div className="border-b border-r border-gray-300 p-2 text-xs text-right">-</div>}
+              <div className="border-b border-gray-300 p-2 text-xs text-right">
+                {formatCurrency(payrollData.earnings?.revenue_share_income)}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
+              <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
+              {!isCommissionBased && <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>}
+              <div className="border-b border-gray-300 p-2 text-xs">&nbsp;</div>
+            </>
+          )}
         </div>
         <div className="grid grid-cols-2 col-span-1">
           <div className="border-b border-r border-gray-300 p-2 text-xs">
@@ -230,46 +241,48 @@ export default function PayrollSummaryTable({ payrollData, companyInfo, classNam
           </div>
         </div>
 
-        {/* Fifth Row - CPP for Commission Employees */}
-        {isCommissionBased && isEmployee && (
-          <>
-            <div className={`grid grid-cols-3 col-span-1 border-r border-gray-300`}>
-              <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
-              <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
-              <div className="border-b border-gray-300 p-2 text-xs">&nbsp;</div>
-            </div>
-            <div className="grid grid-cols-2 col-span-1">
-              <div className="border-b border-r border-gray-300 p-2 text-xs">CPP</div>
-              <div className="border-b border-gray-300 p-2 text-xs text-right">
-                {formatCurrency(payrollData.deductions?.cpp)}
-              </div>
-            </div>
-          </>
-        )}
+        {/* Fifth Row - Empty for earnings, Rent deduction */}
+        <div className={`grid ${isCommissionBased ? 'grid-cols-3' : 'grid-cols-4'} col-span-1 border-r border-gray-300`}>
+          <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
+          <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
+          {!isCommissionBased && <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>}
+          <div className="border-b border-gray-300 p-2 text-xs">&nbsp;</div>
+        </div>
+        <div className="grid grid-cols-2 col-span-1">
+          <div className="border-b border-r border-gray-300 p-2 text-xs">
+            {showRentDeduction ? 'Rent' : (isCommissionBased && isEmployee ? 'CPP' : '')}
+          </div>
+          <div className="border-b border-gray-300 p-2 text-xs text-right">
+            {showRentDeduction ?
+              formatCurrency(payrollData.deductions?.rent) :
+              (isCommissionBased && isEmployee ? formatCurrency(payrollData.deductions?.cpp) : '')
+            }
+          </div>
+        </div>
 
-        {/* Sixth Row - EI for Commission Employees */}
-        {isCommissionBased && isEmployee && (
-          <>
-            <div className={`grid grid-cols-3 col-span-1 border-r border-gray-300`}>
-              <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
-              <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
-              <div className="border-b border-gray-300 p-2 text-xs">&nbsp;</div>
-            </div>
-            <div className="grid grid-cols-2 col-span-1">
-              <div className="border-b border-r border-gray-300 p-2 text-xs">EI</div>
-              <div className="border-b border-gray-300 p-2 text-xs text-right">
-                {formatCurrency(payrollData.deductions?.ei)}
-              </div>
-            </div>
-          </>
-        )}
+        {/* Sixth Row - Empty for earnings, Revenue Share Deduction */}
+        <div className={`grid ${isCommissionBased ? 'grid-cols-3' : 'grid-cols-4'} col-span-1 border-r border-gray-300`}>
+          <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
+          <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>
+          {!isCommissionBased && <div className="border-b border-r border-gray-300 p-2 text-xs">&nbsp;</div>}
+          <div className="border-b border-gray-300 p-2 text-xs">&nbsp;</div>
+        </div>
+        <div className="grid grid-cols-2 col-span-1">
+          <div className="border-b border-r border-gray-300 p-2 text-xs">
+            {showRevenueShareDeduction ? 'Revenue Share Deduction' : (isCommissionBased && isEmployee ? 'EI' : '')}
+          </div>
+          <div className="border-b border-gray-300 p-2 text-xs text-right">
+            {showRevenueShareDeduction ?
+              formatCurrency(payrollData.deductions?.revenue_share_deduction) :
+              (isCommissionBased && isEmployee ? formatCurrency(payrollData.deductions?.ei) : '')
+            }
+          </div>
+        </div>
 
         {/* Total Earnings Row */}
-        <div
-            className={`grid ${isCommissionBased ? 'grid-cols-3' : 'grid-cols-4'} col-span-1 border-r border-gray-300 bg-gray-50`}>
-          <div
-              className={`border-b border-r border-gray-300 p-2 text-xs font-bold ${isCommissionBased ? 'col-span-2' : 'col-span-3'}`}>Total
-            Earnings
+        <div className={`grid ${isCommissionBased ? 'grid-cols-3' : 'grid-cols-4'} col-span-1 border-r border-gray-300 bg-gray-50`}>
+          <div className={`border-b border-r border-gray-300 p-2 text-xs font-bold ${isCommissionBased ? 'col-span-2' : 'col-span-3'}`}>
+            Total Earnings
           </div>
           <div className="border-b border-gray-300 p-2 text-xs text-right font-bold">
             {formatCurrency(payrollData.totals?.total_earnings)}
@@ -335,6 +348,24 @@ export default function PayrollSummaryTable({ payrollData, companyInfo, classNam
           <div className="p-2"></div>
         </div>
       </div>
+
+      {/* Revenue Sharing Details Section */}
+      {(showRevenueShareIncome || showRevenueShareDeduction || showRentDeduction) && (
+        <div className="border-t border-gray-300 p-4 bg-blue-50">
+          <div className="text-sm font-medium text-blue-900 mb-2">Revenue Sharing & Rent Details</div>
+          <div className="text-xs text-blue-800 space-y-1">
+            {showRevenueShareIncome && (
+              <div>Revenue Share Income: {formatCurrency(payrollData.earnings?.revenue_share_income)}</div>
+            )}
+            {showRevenueShareDeduction && (
+              <div>Revenue Share Deduction: {formatCurrency(payrollData.deductions?.revenue_share_deduction)}</div>
+            )}
+            {showRentDeduction && (
+              <div>Rent Deduction: {formatCurrency(payrollData.deductions?.rent)}</div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Notes Section */}
       <div className="border-t border-gray-300 p-4">

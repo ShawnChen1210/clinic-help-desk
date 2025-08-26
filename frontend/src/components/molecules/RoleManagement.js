@@ -8,6 +8,7 @@ const PRIMARY_ROLES = [
   { value: 'hourlycontractor', label: 'Hourly Contractor' },
   { value: 'commissionemployee', label: 'Commission Employee' },
   { value: 'commissioncontractor', label: 'Commission Contractor' },
+  { value: 'student', label: 'Student' },
 ];
 
 const ADDITIONAL_ROLES = [
@@ -21,6 +22,11 @@ const PAYMENT_FREQUENCIES = [
   { value: 'bi-weekly', label: 'Bi-weekly' },
   { value: 'semi-monthly', label: 'Semi-monthly' },
   { value: 'monthly', label: 'Monthly' },
+];
+
+const REVENUE_TARGET_TYPES = [
+  { value: 'specific_user', label: 'Specific User' },
+  { value: 'all_students', label: 'All Students' },
 ];
 
 export default function RoleManagement({ user, onSave, onCancel, isLoading, isOpen }) {
@@ -45,6 +51,7 @@ export default function RoleManagement({ user, onSave, onCancel, isLoading, isOp
     revenuesharing: {
       sharing_rate: user.additionalRoleData?.revenuesharing?.sharing_rate || '',
       description: user.additionalRoleData?.revenuesharing?.description || '',
+      target_type: user.additionalRoleData?.revenuesharing?.target_type || 'specific_user',
       target_user: user.additionalRoleData?.revenuesharing?.target_user || ''
     },
     hasrent: {
@@ -74,6 +81,7 @@ export default function RoleManagement({ user, onSave, onCancel, isLoading, isOp
       revenuesharing: {
         sharing_rate: user.additionalRoleData?.revenuesharing?.sharing_rate || '',
         description: user.additionalRoleData?.revenuesharing?.description || '',
+        target_type: user.additionalRoleData?.revenuesharing?.target_type || 'specific_user',
         target_user: user.additionalRoleData?.revenuesharing?.target_user || ''
       },
       hasrent: {
@@ -147,6 +155,17 @@ export default function RoleManagement({ user, onSave, onCancel, isLoading, isOp
         [field]: value
       }
     }));
+
+    // Clear target_user when switching to 'all_students'
+    if (roleType === 'revenuesharing' && field === 'target_type' && value === 'all_students') {
+      setAdditionalRoleValues(prev => ({
+        ...prev,
+        revenuesharing: {
+          ...prev.revenuesharing,
+          target_user: ''
+        }
+      }));
+    }
   };
 
   const handleSave = () => {
@@ -171,6 +190,9 @@ export default function RoleManagement({ user, onSave, onCancel, isLoading, isOp
           } else if (field === 'target_user') {
             // Target user should be null if empty, not 0
             processedAdditionalRoleValues[roleType][field] = value === '' || value === 0 ? null : value;
+          } else if (field === 'target_type') {
+            // Target type should remain as string
+            processedAdditionalRoleValues[roleType][field] = value;
           } else {
             // Numeric fields (rates, rent) should be 0 if empty
             processedAdditionalRoleValues[roleType][field] = value === '' ? 0 : value;
@@ -225,6 +247,16 @@ export default function RoleManagement({ user, onSave, onCancel, isLoading, isOp
             disabled={isLoading}
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50"
           />
+        </div>
+      );
+    }
+
+    if (primaryRole === 'student') {
+      return (
+        <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
+          <p className="text-sm text-blue-700">
+            Student role requires no additional configuration. Students are not eligible for payroll generation.
+          </p>
         </div>
       );
     }
@@ -286,15 +318,34 @@ export default function RoleManagement({ user, onSave, onCancel, isLoading, isOp
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-600 mb-1">Target User (Username)</label>
-                <input
-                  type="text"
-                  value={roleData.target_user}
-                  onChange={(e) => handleAdditionalRoleValueChange('revenuesharing', 'target_user', e.target.value)}
+                <label className="block text-sm font-medium text-gray-600 mb-1">Target</label>
+                <Select
+                  options={REVENUE_TARGET_TYPES}
+                  value={roleData.target_type}
+                  onChange={(e) => handleAdditionalRoleValueChange('revenuesharing', 'target_type', e.target.value)}
                   disabled={isLoading}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50"
                 />
               </div>
+              {roleData.target_type === 'specific_user' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">Target User (Username)</label>
+                  <input
+                    type="text"
+                    value={roleData.target_user}
+                    onChange={(e) => handleAdditionalRoleValueChange('revenuesharing', 'target_user', e.target.value)}
+                    disabled={isLoading}
+                    placeholder="Enter username"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50"
+                  />
+                </div>
+              )}
+              {roleData.target_type === 'all_students' && (
+                <div className="p-2 bg-blue-50 border border-blue-200 rounded-md">
+                  <p className="text-sm text-blue-700">
+                    This revenue sharing will apply to all users with the Student role.
+                  </p>
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-1">Sharing Rate (decimal, e.g., 0.10 for 10%)</label>
                 <input
@@ -381,8 +432,8 @@ export default function RoleManagement({ user, onSave, onCancel, isLoading, isOp
               {renderPrimaryRoleInputs()}
             </div>
 
-            {/* Payment Frequency Section - only show if user has a primary role */}
-            {primaryRole && (
+            {/* Payment Frequency Section - only show if user has a payroll-eligible primary role */}
+            {primaryRole && primaryRole !== 'student' && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Payment Frequency</label>
                 <Select
