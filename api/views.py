@@ -18,6 +18,7 @@ from django.middleware.csrf import get_token
 from django.utils import timezone
 from datetime import datetime, timedelta
 import uuid
+from .models import *
 
 
 # Create your views here.
@@ -1828,7 +1829,20 @@ class PayrollViewSet(viewsets.ModelViewSet):
 
                 total_hours = sum(daily_hours.values())
 
-                # Calculate overtime and vacation pay
+                if total_hours == 0:
+                    # Check if user has revenue sharing or rent for this period
+                    has_revenue_sharing, has_rent = self._has_revenue_sharing_or_rent_for_period(
+                        user_profile, start_date, end_date
+                    )
+
+                    if not (has_revenue_sharing or has_rent):
+                        return Response(
+                            {
+                                'error': f'No timesheet data found for {user.first_name} {user.last_name} in the specified period and no revenue sharing or rent to process'},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+
+                # Calculate overtime and vacation pay (works with zero hours)
                 overtime_vacation_result = self.calculate_overtime_and_vacation_pay(
                     daily_hours=daily_hours,
                     hourly_rate=payment_detail.hourly_wage,
@@ -1900,6 +1914,20 @@ class PayrollViewSet(viewsets.ModelViewSet):
 
             elif isinstance(payment_detail, HourlyContractor):
                 total_hours = self._get_user_hours_from_sheet(timesheet_sheet_id, user, start_date, end_date)
+
+                if total_hours == 0:
+                    # Check if user has revenue sharing or rent for this period
+                    has_revenue_sharing, has_rent = self._has_revenue_sharing_or_rent_for_period(
+                        user_profile, start_date, end_date
+                    )
+
+                    if not (has_revenue_sharing or has_rent):
+                        return Response(
+                            {
+                                'error': f'No timesheet data found for {user.first_name} {user.last_name} in the specified period and no revenue sharing or rent to process'},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+
                 total_pay = float(payment_detail.hourly_wage) * total_hours
 
                 payroll_data = {
@@ -1952,18 +1980,32 @@ class PayrollViewSet(viewsets.ModelViewSet):
                 )
 
                 if not commission_data:
-                    return Response(
-                        {
-                            'error': f'No commission data found for {user.first_name} {user.last_name} in the specified period'},
-                        status=status.HTTP_400_BAD_REQUEST
+                    # Check if user has revenue sharing or rent for this period
+                    has_revenue_sharing, has_rent = self._has_revenue_sharing_or_rent_for_period(
+                        user_profile, start_date, end_date
                     )
 
-                # Calculate POS fees using the matching algorithm
-                pos_fees = self._calculate_pos_fees_for_practitioner(
-                    commission_data['invoice_data'], clinic_spreadsheet
-                )
+                    if not (has_revenue_sharing or has_rent):
+                        return Response(
+                            {
+                                'error': f'No commission data found for {user.first_name} {user.last_name} in the specified period and no revenue sharing or rent to process'},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
 
-                # Calculate commission payroll
+                    # Create zero-commission payroll structure
+                    commission_data = {
+                        'adjusted_total': 0.0,
+                        'tax_gst': 0.0,
+                        'invoice_data': []
+                    }
+                    pos_fees = 0.0
+                else:
+                    # Calculate POS fees using the matching algorithm
+                    pos_fees = self._calculate_pos_fees_for_practitioner(
+                        commission_data['invoice_data'], clinic_spreadsheet
+                    )
+
+                # Calculate commission payroll (handles zero commission case)
                 payroll_data = self._calculate_commission_payroll(
                     user=user,
                     user_profile=user_profile,
@@ -2056,19 +2098,55 @@ class PayrollViewSet(viewsets.ModelViewSet):
 
             elif isinstance(payment_detail, CommissionEmployee):
                 # For commission employees, treat as additional income/deductions
-                original_net_payment = Decimal(str(payroll_data['totals']['net_payment']))
-                new_net_payment = original_net_payment - rent_deduction - revenue_share_deduction + total_revenue_share_income
+                original_total_earnings = Decimal(str(payroll_data['totals']['total_earnings']))
+                original_total_deductions = Decimal(str(payroll_data['totals']['total_deductions']))
+
+                # If there's revenue sharing income, recalculate taxes on the additional income
+                if total_revenue_share_income > 0:
+                    # Recalculate taxes on original income + revenue sharing income
+                    new_taxable = original_total_earnings + total_revenue_share_income
+
+                    # Calculate new deductions on the higher income
+                    new_deductions_result = self.calculate_deductions(
+                        total_taxable_income=float(new_taxable),
+                        period_days=period_days,
+                        user_profile=user_profile,
+                        site_settings=site_settings
+                    )
+
+                    # Update payroll with new tax calculations
+                    payroll_data['deductions']['federal_tax'] = new_deductions_result['deductions']['federal_tax']
+                    payroll_data['deductions']['provincial_tax'] = new_deductions_result['deductions']['provincial_tax']
+                    payroll_data['deductions']['cpp'] = new_deductions_result['deductions']['cpp']
+                    payroll_data['deductions']['ei'] = new_deductions_result['deductions']['ei']
+
+                    total_tax_deductions = Decimal(str(
+                        new_deductions_result['deductions']['federal_tax'] +
+                        new_deductions_result['deductions']['provincial_tax'] +
+                        new_deductions_result['deductions']['cpp'] +
+                        new_deductions_result['deductions']['ei']
+                    ))
+
+                    payroll_data['totals']['total_earnings'] = float(new_taxable)
+                    payroll_data['earnings']['revenue_share_income'] = float(total_revenue_share_income)
+                    payroll_data['breakdown']['cpp_ytd_after'] = new_deductions_result['cpp_ytd_after']
+                    payroll_data['breakdown']['ei_ytd_after'] = new_deductions_result['ei_ytd_after']
+
+                else:
+                    total_tax_deductions = Decimal(str(
+                        payroll_data['deductions']['federal_tax'] +
+                        payroll_data['deductions']['provincial_tax'] +
+                        payroll_data['deductions']['cpp'] +
+                        payroll_data['deductions']['ei']
+                    ))
+
+                # Calculate final amounts
+                new_total_deductions = original_total_deductions + rent_deduction + revenue_share_deduction
+                new_net_payment = (Decimal(str(payroll_data['totals']['total_earnings'])) -
+                                   new_total_deductions)
 
                 payroll_data['totals']['net_payment'] = float(new_net_payment)
-                payroll_data['totals']['total_deductions'] = float(
-                    Decimal(str(payroll_data['totals']['total_deductions'])) + rent_deduction + revenue_share_deduction
-                )
-                if total_revenue_share_income > 0:
-                    payroll_data['totals']['total_earnings'] = float(
-                        Decimal(str(payroll_data['totals']['total_earnings'])) + total_revenue_share_income
-                    )
-                    payroll_data['earnings']['revenue_share_income'] = float(total_revenue_share_income)
-
+                payroll_data['totals']['total_deductions'] = float(new_total_deductions)
                 payroll_data['deductions']['rent'] = float(rent_deduction)
                 payroll_data['deductions']['revenue_share_deduction'] = float(revenue_share_deduction)
 
@@ -2090,19 +2168,40 @@ class PayrollViewSet(viewsets.ModelViewSet):
 
             elif isinstance(payment_detail, HourlyEmployee):
                 # For hourly employees, treat as additional income/deductions
-                original_net_payment = Decimal(str(payroll_data['totals']['net_payment']))
-                new_net_payment = original_net_payment - rent_deduction - revenue_share_deduction + total_revenue_share_income
+                original_total_earnings = Decimal(str(payroll_data['totals']['total_earnings']))
+                original_total_deductions = Decimal(str(payroll_data['totals']['total_deductions']))
+
+                # If there's revenue sharing income, recalculate taxes on the additional income
+                if total_revenue_share_income > 0:
+                    # Recalculate taxes on original income + revenue sharing income
+                    new_taxable = original_total_earnings + total_revenue_share_income
+
+                    # Calculate new deductions on the higher income
+                    new_deductions_result = self.calculate_deductions(
+                        total_taxable_income=float(new_taxable),
+                        period_days=period_days,
+                        user_profile=user_profile,
+                        site_settings=site_settings
+                    )
+
+                    # Update payroll with new tax calculations
+                    payroll_data['deductions']['federal_tax'] = new_deductions_result['deductions']['federal_tax']
+                    payroll_data['deductions']['provincial_tax'] = new_deductions_result['deductions']['provincial_tax']
+                    payroll_data['deductions']['cpp'] = new_deductions_result['deductions']['cpp']
+                    payroll_data['deductions']['ei'] = new_deductions_result['deductions']['ei']
+
+                    payroll_data['totals']['total_earnings'] = float(new_taxable)
+                    payroll_data['earnings']['revenue_share_income'] = float(total_revenue_share_income)
+                    payroll_data['breakdown']['cpp_ytd_after'] = new_deductions_result['cpp_ytd_after']
+                    payroll_data['breakdown']['ei_ytd_after'] = new_deductions_result['ei_ytd_after']
+
+                # Calculate final amounts
+                new_total_deductions = original_total_deductions + rent_deduction + revenue_share_deduction
+                new_net_payment = (Decimal(str(payroll_data['totals']['total_earnings'])) -
+                                   new_total_deductions)
 
                 payroll_data['totals']['net_payment'] = float(new_net_payment)
-                payroll_data['totals']['total_deductions'] = float(
-                    Decimal(str(payroll_data['totals']['total_deductions'])) + rent_deduction + revenue_share_deduction
-                )
-                if total_revenue_share_income > 0:
-                    payroll_data['totals']['total_earnings'] = float(
-                        Decimal(str(payroll_data['totals']['total_earnings'])) + total_revenue_share_income
-                    )
-                    payroll_data['earnings']['revenue_share_income'] = float(total_revenue_share_income)
-
+                payroll_data['totals']['total_deductions'] = float(new_total_deductions)
                 payroll_data['deductions']['rent'] = float(rent_deduction)
                 payroll_data['deductions']['revenue_share_deduction'] = float(revenue_share_deduction)
 
@@ -2133,6 +2232,38 @@ class PayrollViewSet(viewsets.ModelViewSet):
                 {'error': f'Failed to generate payroll: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    def _has_revenue_sharing_or_rent_for_period(self, user_profile, period_start, period_end):
+        """
+        Check if user has any revenue sharing roles or rent that would apply for this period
+        Returns: (has_revenue_sharing, has_rent)
+        """
+        try:
+            # Check for revenue sharing roles
+            has_revenue_sharing = RevenueSharing.objects.filter(
+                user_profile=user_profile
+            ).exists()
+
+            # Check for rent roles and if period contains month end
+            rent_roles = user_profile.additional_roles.filter(polymorphic_ctype__model='hasrent')
+            has_rent = False
+
+            if rent_roles.exists():
+                # Check if period contains end of any month
+                current_date = period_start
+                while current_date <= period_end:
+                    # Check if this date is the last day of the month
+                    next_day = current_date + timedelta(days=1)
+                    if next_day.month != current_date.month:  # Month changed, so current_date is month end
+                        has_rent = True
+                        break
+                    current_date += timedelta(days=1)
+
+            return has_revenue_sharing, has_rent
+
+        except Exception as e:
+            print(f"Error checking revenue sharing/rent eligibility: {str(e)}")
+            return False, False
 
 
     def calculate_overtime_and_vacation_pay(self, daily_hours, hourly_rate, start_date, end_date, site_settings, user,
@@ -2415,7 +2546,7 @@ class PayrollViewSet(viewsets.ModelViewSet):
             filtered_rows = user_rows[user_rows['Date'].isin(target_dates)]
 
             # Build hours dictionary
-            hours_dict = {date: 0 for date in dates_list}  # Initialize with 0
+            hours_dict = {date: 0.0 for date in dates_list}  # Initialize with 0
 
             for _, row in filtered_rows.iterrows():
                 try:
@@ -2426,7 +2557,7 @@ class PayrollViewSet(viewsets.ModelViewSet):
                         continue
 
                     hours = float(minutes_value) / 60.0
-                    hours_dict[date] = hours_dict.get(date, 0) + hours
+                    hours_dict[date] = hours_dict.get(date, 0.0) + hours
 
                 except (ValueError, TypeError) as e:
                     print(f"Error converting minutes value '{minutes_value}' to float: {e}")
@@ -2465,8 +2596,8 @@ class PayrollViewSet(viewsets.ModelViewSet):
             user_rows['Date'] = pd.to_datetime(user_rows['Date'], errors='coerce')
             user_rows = user_rows.dropna(subset=['Date'])
 
-            start_date_naive = start_date.date() if hasattr(start_date, 'date') else start_date
-            end_date_naive = end_date.date() if hasattr(end_date, 'date') else end_date
+            start_date_naive = start_date
+            end_date_naive = end_date
 
             period_rows = user_rows[
                 (user_rows['Date'].dt.date >= start_date_naive) &
@@ -2989,11 +3120,10 @@ class PayrollViewSet(viewsets.ModelViewSet):
     def _ensure_payroll_record_exists(self, target_user, period_start, period_end, clinic_spreadsheet, site_settings):
         """
         Ensure a payroll record exists for the target user in the specified period.
-        If not, generate one automatically.
+        If not, generate one automatically using the consolidated helper.
         """
         try:
-
-            # Check if record already exists
+            # Check if record already exists first
             existing_record = PayrollRecords.objects.filter(
                 user=target_user,
                 period_start=period_start,
@@ -3003,166 +3133,10 @@ class PayrollViewSet(viewsets.ModelViewSet):
             if existing_record:
                 return existing_record
 
-            print(
-                f"No payroll record found for {target_user.username} in period {period_start} to {period_end}. Generating automatically...")
-
-            # Generate payroll for this user
-            target_user_profile = target_user.userprofile
-            payment_detail = target_user_profile.payment_detail
-
-            if not payment_detail:
-                print(f"User {target_user.username} has no payment role configured")
-                return None
-
-            # Calculate period days
-            period_days = (period_end - period_start).days + 1
-
-            # Generate payroll based on their role type
-            if isinstance(payment_detail, (CommissionEmployee, CommissionContractor)):
-                # Commission calculation
-                compensation_sheet_id = clinic_spreadsheet.compensation_sales_sheet_id
-                if not compensation_sheet_id:
-                    return None
-
-                commission_data = self._get_commission_data_from_sheet(
-                    compensation_sheet_id, target_user, period_start, period_end
-                )
-
-                if not commission_data:
-                    return None
-
-                pos_fees = self._calculate_pos_fees_for_practitioner(
-                    commission_data['invoice_data'], clinic_spreadsheet
-                )
-
-                target_payroll_data = self._calculate_commission_payroll(
-                    user=target_user,
-                    user_profile=target_user_profile,
-                    commission_data=commission_data,
-                    pos_fees=pos_fees,
-                    site_settings=site_settings,
-                    start_date=period_start,
-                    end_date=period_end,
-                    period_days=period_days
-                )
-
-            elif isinstance(payment_detail, (HourlyEmployee, HourlyContractor)):
-                # Hourly calculation
-                timesheet_sheet_id = clinic_spreadsheet.time_hour_sheet_id
-                if not timesheet_sheet_id:
-                    return None
-
-                if isinstance(payment_detail, HourlyEmployee):
-                    daily_hours = self._get_user_daily_hours_from_sheet(
-                        timesheet_sheet_id, target_user, period_start, period_end
-                    )
-
-                    overtime_vacation_result = self.calculate_overtime_and_vacation_pay(
-                        daily_hours=daily_hours,
-                        hourly_rate=payment_detail.hourly_wage,
-                        start_date=period_start,
-                        end_date=period_end,
-                        site_settings=site_settings,
-                        user=target_user,
-                        sheet_id=timesheet_sheet_id
-                    )
-
-                    total_earnings_before_tax = (overtime_vacation_result['regular_pay'] +
-                                                 overtime_vacation_result['overtime_pay'] +
-                                                 overtime_vacation_result['vacation_pay'])
-
-                    deductions_result = self.calculate_deductions(
-                        total_taxable_income=float(total_earnings_before_tax),
-                        period_days=period_days,
-                        user_profile=target_user_profile,
-                        site_settings=site_settings
-                    )
-
-                    target_payroll_data = {
-                        'role_type': 'Hourly Employee',
-                        'totals': {
-                            'total_earnings': float(total_earnings_before_tax),
-                            'total_deductions': deductions_result['total_deductions'],
-                            'net_payment': float(total_earnings_before_tax) - deductions_result['total_deductions'],
-                        },
-                        'earnings': {
-                            'regular_pay': float(overtime_vacation_result['regular_pay']),
-                            'overtime_pay': float(overtime_vacation_result['overtime_pay']),
-                            'vacation_pay': float(overtime_vacation_result['vacation_pay']),
-                        },
-                        'deductions': deductions_result['deductions']
-                    }
-                else:
-                    # Contractor calculation
-                    total_hours = self._get_user_hours_from_sheet(timesheet_sheet_id, target_user, period_start,
-                                                                  period_end)
-                    total_pay = float(payment_detail.hourly_wage) * total_hours
-
-                    target_payroll_data = {
-                        'role_type': 'Hourly Contractor',
-                        'totals': {
-                            'total_earnings': total_pay,
-                            'total_deductions': 0.0,
-                            'net_payment': total_pay,
-                        },
-                        'earnings': {'salary': total_pay},
-                        'deductions': {}
-                    }
-            else:
-                print(f"Unsupported role type for auto-generation: {type(payment_detail)}")
-                return None
-
-            # Create the PayrollRecords entry
-            from django.utils import timezone
-            import uuid
-
-            payroll_number = f"AUTO-{timezone.now().strftime('%Y%m%d')}-{target_user.id:04d}-{uuid.uuid4().hex[:6].upper()}"
-
-            earnings = target_payroll_data.get('earnings', {})
-            deductions = target_payroll_data.get('deductions', {})
-            totals = target_payroll_data.get('totals', {})
-
-            # Determine subtotal income based on role type
-            if 'Commission' in target_payroll_data.get('role_type', ''):
-                subtotal_income = float(earnings.get('gross_income', 0))
-            else:
-                subtotal_income = float(earnings.get('regular_pay', 0) or earnings.get('salary', 0))
-
-            record = PayrollRecords.objects.create(
-                user=target_user,
-                email=target_user.email,
-                period_start=period_start,
-                period_end=period_end,
-                clinic=None,
-                role_type=target_payroll_data.get('role_type', ''),
-
-                # Income fields
-                subtotal_income=subtotal_income,
-                hours_worked=float(target_payroll_data.get('total_hours', 0)),
-                vacation_pay=float(earnings.get('vacation_pay', 0)),
-                overtime_pay=float(earnings.get('overtime_pay', 0)),
-                revenue_share_income=0.000,
-                gst=float(earnings.get('tax_gst', 0)),
-                total_income=float(totals.get('total_earnings', 0)),
-
-                # Deduction fields
-                commission_deduction=float(deductions.get('commission_deduction', 0)),
-                pos_fees=float(deductions.get('pos_fees', 0) or earnings.get('pos_fees', 0)),
-                provincial_income_tax=float(deductions.get('provincial_tax', 0)),
-                federal_income_tax=float(deductions.get('federal_tax', 0)),
-                cpp_contrib=float(deductions.get('cpp', 0)),
-                ei_contrib=float(deductions.get('ei', 0)),
-                rent=0.000,
-                revenue_share_deduction=0.000,
-                revenue_share_deduction_payee=0.000,
-                total_deductions=float(totals.get('total_deductions', 0)),
-
-                notes='Auto-generated for revenue sharing calculation',
-                payroll_number=payroll_number,
+            # Use the consolidated helper method
+            return self._create_payroll_record_for_user(
+                target_user, period_start, period_end, clinic_spreadsheet, site_settings, payroll_type='AUTO'
             )
-
-            print(f"Auto-generated payroll record for {target_user.username}: {payroll_number}")
-            return record
 
         except Exception as e:
             print(f"Error ensuring payroll record exists for {target_user.username}: {str(e)}")
@@ -3294,9 +3268,15 @@ class PayrollViewSet(viewsets.ModelViewSet):
                     print(
                         f"Student calculation: {student_user.username} - Gross: ${gross_income}, POS: ${pos_fees_decimal}, Net: ${student_net}")
 
+                    site_settings = SiteSettings.objects.first()
+                    if not site_settings:
+                        return Response(
+                            {'error': 'Site settings not configured. Please configure tax rates and brackets first.'},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
                     # Create PayrollRecords entry for the student
-                    self._create_student_payroll_record(
-                        student_user, period_start, period_end, adjusted_total, tax_gst, pos_fees_decimal, student_net
+                    self._create_payroll_record_for_user(
+                        student_user, period_start, period_end, clinic_spreadsheet, site_settings, payroll_type='STU'
                     )
 
                 except Exception as student_error:
@@ -3317,6 +3297,229 @@ class PayrollViewSet(viewsets.ModelViewSet):
         except Exception as e:
             print(f"Error calculating revenue sharing income from students: {str(e)}")
             return Decimal('0'), []
+
+    def _create_payroll_record_for_user(self, target_user, period_start, period_end, clinic_spreadsheet, site_settings,
+                                        payroll_type='AUTO'):
+        """
+        Create a PayrollRecords entry for any user based on their role type
+        payroll_type: 'AUTO' for auto-generated, 'STU' for student revenue sharing
+        """
+        try:
+            from django.utils import timezone
+            import uuid
+
+            # Check if record already exists
+            existing_record = PayrollRecords.objects.filter(
+                user=target_user,
+                period_start=period_start,
+                period_end=period_end
+            ).first()
+
+            if existing_record:
+                print(
+                    f"PayrollRecords already exists for {target_user.username} in period {period_start} to {period_end}")
+                return existing_record
+
+            target_user_profile = target_user.userprofile
+            payment_detail = target_user_profile.payment_detail
+
+            if not payment_detail:
+                print(f"User {target_user.username} has no payment role configured")
+                return None
+
+            # Calculate period days
+            period_days = (period_end - period_start).days + 1
+
+            # Generate payroll based on their role type
+            if isinstance(payment_detail, (CommissionEmployee, CommissionContractor)):
+                # Commission calculation
+                compensation_sheet_id = clinic_spreadsheet.compensation_sales_sheet_id
+                if not compensation_sheet_id:
+                    return None
+
+                commission_data = self._get_commission_data_from_sheet(
+                    compensation_sheet_id, target_user, period_start, period_end
+                )
+
+                if not commission_data:
+                    return None
+
+                pos_fees = self._calculate_pos_fees_for_practitioner(
+                    commission_data['invoice_data'], clinic_spreadsheet
+                )
+
+                target_payroll_data = self._calculate_commission_payroll(
+                    user=target_user,
+                    user_profile=target_user_profile,
+                    commission_data=commission_data,
+                    pos_fees=pos_fees,
+                    site_settings=site_settings,
+                    start_date=period_start,
+                    end_date=period_end,
+                    period_days=period_days
+                )
+
+            elif isinstance(payment_detail, (HourlyEmployee, HourlyContractor)):
+                # Hourly calculation
+                timesheet_sheet_id = clinic_spreadsheet.time_hour_sheet_id
+                if not timesheet_sheet_id:
+                    return None
+
+                if isinstance(payment_detail, HourlyEmployee):
+                    daily_hours = self._get_user_daily_hours_from_sheet(
+                        timesheet_sheet_id, target_user, period_start, period_end
+                    )
+
+                    overtime_vacation_result = self.calculate_overtime_and_vacation_pay(
+                        daily_hours=daily_hours,
+                        hourly_rate=payment_detail.hourly_wage,
+                        start_date=period_start,
+                        end_date=period_end,
+                        site_settings=site_settings,
+                        user=target_user,
+                        sheet_id=timesheet_sheet_id
+                    )
+
+                    total_earnings_before_tax = (overtime_vacation_result['regular_pay'] +
+                                                 overtime_vacation_result['overtime_pay'] +
+                                                 overtime_vacation_result['vacation_pay'])
+
+                    deductions_result = self.calculate_deductions(
+                        total_taxable_income=float(total_earnings_before_tax),
+                        period_days=period_days,
+                        user_profile=target_user_profile,
+                        site_settings=site_settings
+                    )
+
+                    target_payroll_data = {
+                        'role_type': 'Hourly Employee',
+                        'totals': {
+                            'total_earnings': float(total_earnings_before_tax),
+                            'total_deductions': deductions_result['total_deductions'],
+                            'net_payment': float(total_earnings_before_tax) - deductions_result['total_deductions'],
+                        },
+                        'earnings': {
+                            'regular_pay': float(overtime_vacation_result['regular_pay']),
+                            'overtime_pay': float(overtime_vacation_result['overtime_pay']),
+                            'vacation_pay': float(overtime_vacation_result['vacation_pay']),
+                        },
+                        'deductions': deductions_result['deductions']
+                    }
+                else:
+                    # Contractor calculation
+                    total_hours = self._get_user_hours_from_sheet(timesheet_sheet_id, target_user, period_start,
+                                                                  period_end)
+                    total_pay = float(payment_detail.hourly_wage) * total_hours
+
+                    target_payroll_data = {
+                        'role_type': 'Hourly Contractor',
+                        'totals': {
+                            'total_earnings': total_pay,
+                            'total_deductions': 0.0,
+                            'net_payment': total_pay,
+                        },
+                        'earnings': {'salary': total_pay},
+                        'deductions': {}
+                    }
+
+            elif isinstance(payment_detail, Student):
+                # Special handling for students - treat as 100% commission contractors
+                compensation_sheet_id = clinic_spreadsheet.compensation_sales_sheet_id
+                if not compensation_sheet_id:
+                    return None
+
+                commission_data = self._get_commission_data_from_sheet(
+                    compensation_sheet_id, target_user, period_start, period_end
+                )
+
+                if not commission_data:
+                    return None
+
+                pos_fees = self._calculate_pos_fees_for_practitioner(
+                    commission_data['invoice_data'], clinic_spreadsheet
+                )
+
+                # Students are treated as 100% commission contractors
+                adjusted_total = Decimal(str(commission_data['adjusted_total']))
+                tax_gst = Decimal(str(commission_data['tax_gst']))
+                gross_income = adjusted_total + tax_gst
+                pos_fees_decimal = Decimal(str(pos_fees))
+                student_net = gross_income - pos_fees_decimal
+
+                target_payroll_data = {
+                    'role_type': 'Student',
+                    'totals': {
+                        'total_earnings': float(gross_income),
+                        'total_deductions': float(pos_fees_decimal),
+                        'net_payment': float(student_net),
+                    },
+                    'earnings': {
+                        'adjusted_total': float(adjusted_total),
+                        'tax_gst': float(tax_gst),
+                        'gross_income': float(gross_income),
+                    },
+                    'deductions': {
+                        'pos_fees': float(pos_fees_decimal),
+                    }
+                }
+            else:
+                print(f"Unsupported role type for payroll record creation: {type(payment_detail)}")
+                return None
+
+            # Create the PayrollRecords entry
+            prefix = payroll_type if payroll_type != 'AUTO' else 'AUTO'
+            payroll_number = f"{prefix}-{timezone.now().strftime('%Y%m%d')}-{target_user.id:04d}-{uuid.uuid4().hex[:6].upper()}"
+
+            earnings = target_payroll_data.get('earnings', {})
+            deductions = target_payroll_data.get('deductions', {})
+            totals = target_payroll_data.get('totals', {})
+            role_type = target_payroll_data.get('role_type', '')
+
+            # Determine subtotal income based on role type
+            if 'Commission' in role_type or role_type == 'Student':
+                subtotal_income = float(earnings.get('adjusted_total', 0) or earnings.get('gross_income', 0))
+            else:
+                subtotal_income = float(earnings.get('regular_pay', 0) or earnings.get('salary', 0))
+
+            record = PayrollRecords.objects.create(
+                user=target_user,
+                email=target_user.email,
+                period_start=period_start,
+                period_end=period_end,
+                clinic=None,
+                role_type=role_type,
+
+                # Income fields
+                subtotal_income=subtotal_income,
+                hours_worked=float(target_payroll_data.get('total_hours', 0)),
+                vacation_pay=float(earnings.get('vacation_pay', 0)),
+                overtime_pay=float(earnings.get('overtime_pay', 0)),
+                revenue_share_income=0.000,
+                gst=float(earnings.get('tax_gst', 0)),
+                total_income=float(totals.get('total_earnings', 0)),
+
+                # Deduction fields
+                commission_deduction=float(deductions.get('commission_deduction', 0)),
+                pos_fees=float(deductions.get('pos_fees', 0) or earnings.get('pos_fees', 0)),
+                provincial_income_tax=float(deductions.get('provincial_tax', 0)),
+                federal_income_tax=float(deductions.get('federal_tax', 0)),
+                cpp_contrib=float(deductions.get('cpp', 0)),
+                ei_contrib=float(deductions.get('ei', 0)),
+                rent=0.000,
+                revenue_share_deduction=0.000,
+                revenue_share_deduction_payee=0.000,
+                total_deductions=float(totals.get('total_deductions', 0)),
+
+                notes=f'{payroll_type}-generated payroll record',
+                payroll_number=payroll_number,
+            )
+
+            print(f"Created PayrollRecords entry for {target_user.username}: {payroll_number}")
+            return record
+
+        except Exception as e:
+            print(f"Error creating payroll record for {target_user.username}: {str(e)}")
+            return None
 
     @action(detail=True, methods=['post'])
     def send_payroll(self, request, pk=None):
