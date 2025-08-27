@@ -29,6 +29,8 @@ export default function Navbar() {
         }
     };
 
+
+
     const defaultSheetId = sheets?.compensation_sales_sheet_id;
     const navLinkStyles = ({ isActive }) => isActive ? 'bg-gray-600 font-bold' : '';
 
@@ -44,6 +46,21 @@ export default function Navbar() {
             </div>
 
             <nav className="flex-grow p-4 space-y-2">
+                {/* Back to Clinics button - visible to staff users */}
+                {currentUser?.is_staff && (
+                    <NavLink
+                        to="/chd-app/clinics"
+                        className={({ isActive }) =>
+                            `block py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 ${navLinkStyles({ isActive })} flex items-center gap-2`
+                        }
+                    >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                        </svg>
+                        Clinics
+                    </NavLink>
+                )}
+
                 {clinic_id && (
                     <NavLink
                         to={`/chd-app/${clinic_id}`}
@@ -93,7 +110,7 @@ export default function Navbar() {
                     </>
                 )}
 
-                {!clinic_id && (
+                {!clinic_id && !currentUser?.is_staff && (
                     <div className="py-4 px-4 text-gray-400 text-sm text-center">
                         Select a clinic to view options
                     </div>
@@ -102,13 +119,18 @@ export default function Navbar() {
 
             {currentUser && (
                 <div className="p-4 border-t border-gray-700">
-                    <div className="text-sm">
-                        <div className="font-medium">{currentUser.username}</div>
-                        <div className="text-gray-400">
-                            {currentUser.is_superuser ? 'Super Admin' :
-                             currentUser.is_staff ? 'Staff' : 'User'}
+                    <button
+                        onClick={() => window.location.href = '/registration/profile/'}
+                        className="block w-full text-left hover:bg-gray-700 rounded p-2 transition duration-200"
+                    >
+                        <div className="text-sm">
+                            <div className="font-medium">{currentUser.username}</div>
+                            <div className="text-gray-400">
+                                {currentUser.is_superuser ? 'Super Admin' :
+                                 currentUser.is_staff ? 'Staff' : 'User'}
+                            </div>
                         </div>
-                    </div>
+                    </button>
                 </div>
             )}
         </div>
