@@ -88,48 +88,36 @@ class PayrollViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def generate_payroll(self, request, pk=None):
-        """
-        Generate payroll for a specific user using a strategy pattern.
-        """
+        """Generate payroll for a specific user using a strategy pattern."""
         if not (request.user.is_staff or request.user.is_superuser):
             return Response({'error': 'You do not have permission to generate payroll'},
                             status=status.HTTP_403_FORBIDDEN)
-
         try:
-            # 1. SETUP: Get all necessary models and data
             user = get_object_or_404(User, id=pk)
             user_profile = get_object_or_404(UserProfile, user=user)
             user_profile.reset_annual_contributions_if_needed()
-
             site_settings = SiteSettings.objects.first()
             if not site_settings:
                 return Response({'error': 'Site settings not configured.'}, status=status.HTTP_400_BAD_REQUEST)
-
             start_date = datetime.strptime(request.data['startDate'], '%Y-%m-%d').date()
             end_date = datetime.strptime(request.data['endDate'], '%Y-%m-%d').date()
             period_days = (end_date - start_date).days + 1
             clinic = get_object_or_404(Clinic, id=request.data['clinic_id'])
             clinic_spreadsheet = get_object_or_404(ClinicSpreadsheet, clinic=clinic)
-
             payment_detail = getattr(user_profile, 'payment_detail', None)
             if not payment_detail:
                 return Response({'error': 'User does not have a payment role configured.'},
                                 status=status.HTTP_400_BAD_REQUEST)
-
-            # 2. CALCULATE BASE EARNINGS: Use the appropriate strategy
             try:
                 calculator = self._get_payroll_calculator(user, user_profile, payment_detail, clinic_spreadsheet,
                                                           start_date, end_date, site_settings)
                 payroll_data = calculator.calculate_base_earnings()
             except (ValueError, TypeError) as e:
                 return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-            # 3. CALCULATE COMMON ADJUSTMENTS: Handle Rent and Revenue Sharing once
             earnings = payroll_data.get('earnings', {})
             is_commission = 'Commission' in payroll_data.get('role_type', '')
             base_gross_income = Decimal(str(earnings.get('gross_income', 0))) if is_commission else \
                 (Decimal(str(earnings.get('regular_pay', 0))) + Decimal(str(earnings.get('overtime_pay', 0))))
-
             rent_deduction, rent_description = self._calculate_rent_deduction(user_profile, start_date, end_date)
             rev_share_deduction, rev_deduction_details = self._calculate_revenue_sharing_deductions(user, user_profile,
                                                                                                     base_gross_income)
@@ -138,62 +126,35 @@ class PayrollViewSet(viewsets.ModelViewSet):
             rev_share_income_students, rev_income_student_details = self._calculate_revenue_sharing_income_from_students(
                 user_profile, start_date, end_date, clinic_spreadsheet)
             total_revenue_share_income = rev_share_income_users + rev_share_income_students
-
-            # 4. APPLY FINAL ADJUSTMENTS: Modify payroll_data based on adjustments
             payroll_data = self._apply_final_adjustments(payroll_data, payment_detail, period_days, user_profile,
                                                          site_settings, rent_deduction, rev_share_deduction,
                                                          total_revenue_share_income)
-
-            # Add the rent description to the deductions dictionary for the email template
             payroll_data['deductions']['rent_description'] = rent_description
-
-            # 5. FINALIZE AND RETURN: Add detailed breakdowns for transparency
             payroll_data['revenue_sharing_details'] = {
-                'rent_deduction': float(rent_deduction),
-                'revenue_share_deduction': float(rev_share_deduction),
+                'rent_deduction': float(rent_deduction), 'revenue_share_deduction': float(rev_share_deduction),
                 'revenue_share_income_users': float(rev_share_income_users),
                 'revenue_share_income_students': float(rev_share_income_students),
                 'revenue_deduction_details': rev_deduction_details,
                 'revenue_income_user_details': rev_income_user_details,
                 'revenue_income_student_details': rev_income_student_details,
             }
-
-            # Build the revenue sharing contributions dictionary for the email template
-            revenue_sharing_contributions = {
-                'income_contributors': [],
-                'deduction_recipients': []
-            }
-
+            revenue_sharing_contributions = {'income_contributors': [], 'deduction_recipients': []}
             if rev_income_user_details:
                 for detail in rev_income_user_details:
-                    revenue_sharing_contributions['income_contributors'].append({
-                        'user_name': detail['from_user'],
-                        'amount': detail['amount'],
-                        'type': 'specific_user'
-                    })
-
+                    revenue_sharing_contributions['income_contributors'].append(
+                        {'user_name': detail['from_user'], 'amount': detail['amount'], 'type': 'specific_user'})
             if rev_income_student_details:
                 total_student_contribution = float(total_revenue_share_income - rev_share_income_users)
                 if total_student_contribution > 0:
-                    revenue_sharing_contributions['income_contributors'].append({
-                        'user_name': 'All Students Combined',
-                        'amount': total_student_contribution,
-                        'type': 'student_share',
-                        'student_breakdown': rev_income_student_details
-                    })
-
+                    revenue_sharing_contributions['income_contributors'].append(
+                        {'user_name': 'All Students Combined', 'amount': total_student_contribution,
+                         'type': 'student_share', 'student_breakdown': rev_income_student_details})
             if rev_deduction_details:
                 for detail in rev_deduction_details:
-                    revenue_sharing_contributions['deduction_recipients'].append({
-                        'user_name': detail['payee'],
-                        'amount': detail['amount'],
-                        'type': 'specific_user'
-                    })
-
+                    revenue_sharing_contributions['deduction_recipients'].append(
+                        {'user_name': detail['payee'], 'amount': detail['amount'], 'type': 'specific_user'})
             payroll_data['revenue_sharing_contributions'] = revenue_sharing_contributions
-
             return Response(payroll_data, status=status.HTTP_200_OK)
-
         except Exception as e:
             traceback.print_exc()
             return Response({'error': f'Failed to generate payroll: {str(e)}'},
@@ -536,123 +497,67 @@ class PayrollViewSet(viewsets.ModelViewSet):
             return {date: 0 for date in dates_list}
 
     def _get_user_hours_from_sheet(self, sheet_id, user, start_date, end_date):
+        # UPDATED: Switched to the efficient date range query.
         """
-        Fetch user hours from Google Sheet for the specified period (total hours)
-        Used for contractors who don't need daily breakdown
+        Fetch total user hours from Google Sheet for the specified period.
         """
         try:
-            sheet_data = read_google_sheets(sheet_id, "A:I")
+            df = read_sheet_by_date_range(
+                sheet_id=sheet_id,
+                date_column_name="Date",
+                start_date=start_date,
+                end_date=end_date
+            )
 
-            if not sheet_data or len(sheet_data) < 2:
-                print("No data found in timesheet")
+            if df.empty:
+                print(f"No timesheet entries found for period {start_date} to {end_date}")
                 return 0.0
-
-            headers = sheet_data[0]
-            data_rows = sheet_data[1:]
-            df = pd.DataFrame(data_rows, columns=headers)
 
             user_full_name = f"{user.first_name} {user.last_name}".strip()
             user_rows = df[df['Staff member'].str.strip() == user_full_name]
 
             if user_rows.empty:
-                print(f"No timesheet entries found for user: {user_full_name}")
+                print(f"No timesheet entries found for user: {user_full_name} in the period.")
                 return 0.0
 
-            user_rows = user_rows.copy()
-            user_rows['Date'] = pd.to_datetime(user_rows['Date'], errors='coerce')
-            user_rows = user_rows.dropna(subset=['Date'])
-
-            start_date_naive = start_date
-            end_date_naive = end_date
-
-            period_rows = user_rows[
-                (user_rows['Date'].dt.date >= start_date_naive) &
-                (user_rows['Date'].dt.date <= end_date_naive)
-                ]
-
-            if period_rows.empty:
-                print(
-                    f"No timesheet entries found for user {user_full_name} in period {start_date_naive} to {end_date_naive}")
-                return 0.0
-
-            total_minutes = 0.0
-            for _, row in period_rows.iterrows():
-                try:
-                    minutes_value = row['Payable time (mins)']
-                    if pd.isna(minutes_value) or minutes_value == '':
-                        continue
-                    total_minutes += float(minutes_value)
-                except (ValueError, TypeError) as e:
-                    print(f"Error converting minutes value '{minutes_value}' to float: {e}")
-                    continue
-
+            total_minutes = pd.to_numeric(user_rows['Payable time (mins)'], errors='coerce').fillna(0).sum()
             total_hours = total_minutes / 60.0
-            print(
-                f"Found {len(period_rows)} entries for {user_full_name}: {total_minutes} minutes = {total_hours:.2f} hours")
-
+            print(f"Found {len(user_rows)} entries for {user_full_name}: {total_hours:.2f} hours")
             return round(total_hours, 2)
-
         except Exception as e:
             print(f"Error fetching sheet data: {str(e)}")
             return 0.0
 
     def _get_user_daily_hours_from_sheet(self, sheet_id, user, start_date, end_date):
+        # UPDATED: Switched to the efficient date range query.
         """
-        Fetch user hours from Google Sheet broken down by day
-        Returns: dict with date as key and hours as value
+        Fetch user hours from Google Sheet broken down by day.
         """
         try:
-            sheet_data = read_google_sheets(sheet_id, "A:I")
+            df = read_sheet_by_date_range(
+                sheet_id=sheet_id,
+                date_column_name="Date",
+                start_date=start_date,
+                end_date=end_date
+            )
 
-            if not sheet_data or len(sheet_data) < 2:
-                print("No data found in timesheet")
+            if df.empty:
                 return {}
-
-            headers = sheet_data[0]
-            data_rows = sheet_data[1:]
-            df = pd.DataFrame(data_rows, columns=headers)
 
             user_full_name = f"{user.first_name} {user.last_name}".strip()
-            user_rows = df[df['Staff member'].str.strip() == user_full_name]
+            user_rows = df[df['Staff member'].str.strip() == user_full_name].copy()
 
             if user_rows.empty:
-                print(f"No timesheet entries found for user: {user_full_name}")
                 return {}
 
-            user_rows = user_rows.copy()
-            user_rows['Date'] = pd.to_datetime(user_rows['Date'], errors='coerce')
-            user_rows = user_rows.dropna(subset=['Date'])
+            user_rows['DateOnly'] = pd.to_datetime(user_rows['Date']).dt.date
+            user_rows['PayableMinutes'] = pd.to_numeric(user_rows['Payable time (mins)'], errors='coerce').fillna(0)
 
-            # Filter for the date range
-            period_rows = user_rows[
-                (user_rows['Date'].dt.date >= start_date) &
-                (user_rows['Date'].dt.date <= end_date)
-                ]
-
-            if period_rows.empty:
-                print(f"No timesheet entries found for user {user_full_name} in period {start_date} to {end_date}")
-                return {}
-
-            # Build daily hours dictionary
-            daily_hours = {}
-            for _, row in period_rows.iterrows():
-                try:
-                    date = row['Date'].date()
-                    minutes_value = row['Payable time (mins)']
-
-                    if pd.isna(minutes_value) or minutes_value == '':
-                        continue
-
-                    hours = float(minutes_value) / 60.0
-                    daily_hours[date] = daily_hours.get(date, 0) + hours
-
-                except (ValueError, TypeError) as e:
-                    print(f"Error converting minutes value '{minutes_value}' to float: {e}")
-                    continue
+            daily_minutes = user_rows.groupby('DateOnly')['PayableMinutes'].sum()
+            daily_hours = (daily_minutes / 60.0).round(2).to_dict()
 
             print(f"Found daily hours for {user_full_name}: {daily_hours}")
             return daily_hours
-
         except Exception as e:
             print(f"Error fetching sheet data: {str(e)}")
             return {}
@@ -682,96 +587,57 @@ class PayrollViewSet(viewsets.ModelViewSet):
         return str(invoice_str).split('-')[0]
 
     def _get_commission_data_from_sheet(self, compensation_sheet_id, user, start_date, end_date):
+        # UPDATED: Switched to the efficient date range query.
         """
-        Extract commission data for a specific practitioner from compensation sheet
-        Returns: dict with aggregated totals or None if no data found
+        Extract commission data for a specific practitioner from compensation sheet.
         """
         try:
-            sheet_data = read_google_sheets(compensation_sheet_id, "A:Z")
-
-            if not sheet_data or len(sheet_data) < 2:
-                print("No data found in compensation sheet")
-                return None
-
-            headers = sheet_data[0]
-            data_rows = sheet_data[1:]
-            df = pd.DataFrame(data_rows, columns=headers)
-
-            # Normalize user name for matching
-            user_full_name = f"{user.first_name} {user.last_name}".strip()
-
-            # Filter for practitioner's rows
-            practitioner_rows = []
-            for _, row in df.iterrows():
-                practitioner_name = self._normalize_practitioner_name(row.get('Practitioner', ''))
-                if practitioner_name.lower() == user_full_name.lower():
-                    practitioner_rows.append(row)
-
-            if not practitioner_rows:
-                print(f"No compensation data found for practitioner: {user_full_name}")
-                return None
-
-                # Convert to DataFrame and debug dates
-            practitioner_df = pd.DataFrame(practitioner_rows)
-
-            print(f"Found {len(practitioner_df)} total rows for {user_full_name}")
-
-            # Parse dates and show what we found
-            practitioner_df['Invoice Date'] = pd.to_datetime(practitioner_df['Invoice Date'], errors='coerce')
-
-            print(f"Date range requested: {start_date} to {end_date}")
-            print("Invoice dates found:")
-            for date in practitioner_df['Invoice Date'].dropna():
-                print(f"  - {date.date()}")
-
-            # Filter by date range
-            mask = (
-                    (practitioner_df['Invoice Date'].dt.date >= start_date) &
-                    (practitioner_df['Invoice Date'].dt.date <= end_date)
+            df = read_sheet_by_date_range(
+                sheet_id=compensation_sheet_id,
+                date_column_name="Invoice Date",
+                start_date=start_date,
+                end_date=end_date
             )
-            period_rows = practitioner_df[mask]
 
-            print(f"Rows after date filtering: {len(period_rows)}")
+            if df.empty:
+                print(f"No compensation data found for period {start_date} to {end_date}")
+                return None
+
+            user_full_name = f"{user.first_name} {user.last_name}".strip()
+            period_rows = df[df['Practitioner'].apply(
+                lambda x: self._normalize_practitioner_name(x).lower() == user_full_name.lower()
+            )]
 
             if period_rows.empty:
-                print(f"No compensation data found for {user_full_name} in period {start_date} to {end_date}")
+                print(f"No compensation data found for {user_full_name} in period.")
                 return None
 
-            # Aggregate the required columns
-            try:
-                adjusted_total = pd.to_numeric(period_rows['Adjusted Total'], errors='coerce').fillna(0).sum()
-                tax_gst = pd.to_numeric(period_rows['Tax'], errors='coerce').fillna(0).sum()
+            adjusted_total = pd.to_numeric(period_rows['Adjusted Total'], errors='coerce').fillna(0).sum()
+            tax_gst = pd.to_numeric(period_rows['Tax'], errors='coerce').fillna(0).sum()
 
-                # Collect invoice and patient data for POS fee calculation
-                invoice_data = []
-                for _, row in period_rows.iterrows():
-                    invoice_data.append({
-                        'invoice_date': row['Invoice Date'].date() if pd.notna(row['Invoice Date']) else None,
-                        'invoice_number': self._extract_base_invoice_number(row.get('Invoice #', '')),
-                        'patient_name': str(row.get('Patient', '')).strip(),
-                        'adjusted_total': pd.to_numeric(row.get('Adjusted Total', 0), errors='coerce') or 0
-                    })
+            invoice_data = []
+            for _, row in period_rows.iterrows():
+                invoice_data.append({
+                    'invoice_date': pd.to_datetime(row['Invoice Date']).date() if pd.notna(
+                        row['Invoice Date']) else None,
+                    'invoice_number': self._extract_base_invoice_number(row.get('Invoice #', '')),
+                    'patient_name': str(row.get('Patient', '')).strip(),
+                    'adjusted_total': pd.to_numeric(row.get('Adjusted Total', 0), errors='coerce') or 0
+                })
 
-                return {
-                    'adjusted_total': float(adjusted_total),
-                    'tax_gst': float(tax_gst),
-                    'invoice_data': invoice_data,
-                    'period_start': start_date,
-                    'period_end': end_date
-                }
-
-            except Exception as e:
-                print(f"Error aggregating commission data: {str(e)}")
-                return None
-
+            return {
+                'adjusted_total': float(adjusted_total),
+                'tax_gst': float(tax_gst),
+                'invoice_data': invoice_data
+            }
         except Exception as e:
             print(f"Error fetching commission data: {str(e)}")
             return None
 
     def _calculate_pos_fees_for_practitioner(self, invoice_data, clinic_spreadsheet):
+        # UPDATED: Massively optimized to make only two API calls instead of reading sheets in a loop.
         """
-        Calculate total POS fees for a practitioner using the matching algorithm
-        Returns: float (total POS fees)
+        Calculate total POS fees for a practitioner using the matching algorithm.
         """
         try:
             if not invoice_data:
@@ -780,29 +646,26 @@ class PayrollViewSet(viewsets.ModelViewSet):
             transaction_sheet_id = clinic_spreadsheet.transaction_report_sheet_id
             payment_sheet_id = clinic_spreadsheet.payment_transaction_sheet_id
 
-            if not transaction_sheet_id or not payment_sheet_id:
+            if not all([transaction_sheet_id, payment_sheet_id]):
                 print("Missing required sheet IDs for POS fee calculation")
                 return 0.0
 
-            # Get transaction data
-            transaction_data = read_google_sheets(transaction_sheet_id, "A:Z")
-            if not transaction_data or len(transaction_data) < 2:
+            # Find the date range needed for the query
+            invoice_dates = {item['invoice_date'] for item in invoice_data if item['invoice_date']}
+            if not invoice_dates:
                 return 0.0
+            min_date, max_date = min(invoice_dates), max(invoice_dates)
 
-            transaction_headers = transaction_data[0]
-            transaction_df = pd.DataFrame(transaction_data[1:], columns=transaction_headers)
+            # Make one efficient call for each sheet to get all potentially relevant data
+            transaction_df = read_sheet_by_date_range(transaction_sheet_id, "Payment Date", min_date, max_date)
+            payment_df = read_sheet_by_date_range(payment_sheet_id, "Date", min_date, max_date)
 
-            # Get Jane payments data
-            payment_data = read_google_sheets(payment_sheet_id, "A:Z")
-            if not payment_data or len(payment_data) < 2:
+            if transaction_df.empty or payment_df.empty:
                 return 0.0
-
-            payment_headers = payment_data[0]
-            payment_df = pd.DataFrame(payment_data[1:], columns=payment_headers)
 
             total_pos_fees = 0.0
-
             for invoice_info in invoice_data:
+                # ... (the inner loop logic for matching remains the same but now operates on pre-fetched DataFrames)
                 invoice_date = invoice_info['invoice_date']
                 base_invoice_number = invoice_info['invoice_number']
                 patient_name = invoice_info['patient_name']
@@ -810,59 +673,32 @@ class PayrollViewSet(viewsets.ModelViewSet):
                 if not all([invoice_date, base_invoice_number, patient_name]):
                     continue
 
-                # Step 1: Find matching transactions
-                # Convert payment date to datetime for comparison
-                transaction_df['Payment Date'] = pd.to_datetime(transaction_df['Payment Date'], errors='coerce')
-
-                # Filter transactions by date, patient name, and Jane Payments method
                 matching_transactions = transaction_df[
-                    (transaction_df['Payment Date'].dt.date == invoice_date) &
+                    (pd.to_datetime(transaction_df['Payment Date']).dt.date == invoice_date) &
                     (transaction_df['Payer'].str.contains(patient_name, case=False, na=False)) &
-                    (transaction_df['Payment Method'].str.contains('Jane Payments', case=False, na=False))
+                    (transaction_df['Payment Method'].str.contains('Jane Payments', case=False, na=False)) &
+                    (transaction_df['Applied To'].str.contains(base_invoice_number, na=False))
                     ]
-
-                # Also check if Applied To field contains our base invoice number
-                def check_invoice_match(applied_to_str, base_number):
-                    if pd.isna(applied_to_str):
-                        return False
-                    applied_invoices = str(applied_to_str).split(',')
-                    for applied_invoice in applied_invoices:
-                        applied_base = self._extract_base_invoice_number(applied_invoice.strip())
-                        if applied_base == base_number:
-                            return True
-                    return False
-
-                matching_transactions = matching_transactions[
-                    matching_transactions['Applied To'].apply(lambda x: check_invoice_match(x, base_invoice_number))
-                ]
 
                 if matching_transactions.empty:
                     continue
 
-                # Step 2: Match with Jane Payments to get fees
                 for _, transaction in matching_transactions.iterrows():
                     transaction_amount = pd.to_numeric(transaction.get('Amount', 0), errors='coerce') or 0
-                    transaction_date = transaction['Payment Date'].date()
-
-                    # Find matching Jane Payments entry
-                    payment_df['Date'] = pd.to_datetime(payment_df['Date'], errors='coerce')
 
                     matching_payments = payment_df[
-                        (payment_df['Date'].dt.date == transaction_date) &
+                        (pd.to_datetime(payment_df['Date']).dt.date == invoice_date) &
                         (payment_df['Customer'].str.contains(patient_name, case=False, na=False)) &
-                        (pd.to_numeric(payment_df['Customer Charge'], errors='coerce').fillna(0).round(2) ==
-                         round(float(transaction_amount), 2))
+                        (pd.to_numeric(payment_df['Customer Charge'], errors='coerce').fillna(0).round(2) == round(
+                            float(transaction_amount), 2))
                         ]
 
-                    # Sum up the Jane Payments fees for matching entries
                     for _, payment in matching_payments.iterrows():
                         jane_fee = pd.to_numeric(payment.get('Jane Payments Fee', 0), errors='coerce') or 0
                         total_pos_fees += float(jane_fee)
-                        print(f"Found POS fee: ${jane_fee} for {patient_name} on {transaction_date}")
 
             print(f"Total calculated POS fees: ${total_pos_fees}")
             return total_pos_fees
-
         except Exception as e:
             print(f"Error calculating POS fees: {str(e)}")
             return 0.0
