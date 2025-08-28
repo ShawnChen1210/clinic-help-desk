@@ -29,44 +29,49 @@ export default function ConfirmPayroll() {
     navigate(`/chd-app/${clinic_id}/members`);
   };
 
-  const handleSendPayroll = async () => {
-    if (!payrollData) {
-      setError('No payroll data available');
-      return;
+const handleSendPayroll = async () => {
+  if (!payrollData) {
+    setError('No payroll data available');
+    return;
+  }
+
+  setIsSending(true);
+  setError(null);
+
+  try {
+    const payrollPayload = {
+      ...payrollData,
+      notes: notes.trim(),
+      clinic_id: clinic_id, // Pass clinic_id from URL params
+    };
+
+    // Debug logging
+    console.log('Sending payroll with clinic_id:', clinic_id);
+    console.log('Payroll payload:', payrollPayload);
+
+    const response = await api.post(`/api/payroll/${userId}/send_payroll/`, payrollPayload);
+
+    if (response.status === 200) {
+      alert(`Payroll sent successfully! ${payrollData.user_name} will receive an email with their payslip.`);
+      navigate(`/chd-app/${clinic_id}/members`);
+    }
+  } catch (error) {
+    console.error('Error sending payroll:', error);
+    let errorMessage = 'Failed to send payroll. Please try again.';
+
+    if (error.response?.data?.error) {
+      errorMessage = error.response.data.error;
+    } else if (error.response?.status === 403) {
+      errorMessage = 'You do not have permission to send payroll.';
+    } else if (error.response?.status === 400) {
+      errorMessage = 'Invalid payroll data. Please check the information and try again.';
     }
 
-    setIsSending(true);
-    setError(null);
-
-    try {
-      const payrollPayload = {
-        ...payrollData,
-        notes: notes.trim(),
-      };
-
-      const response = await api.post(`/api/payroll/${userId}/send_payroll/`, payrollPayload);
-
-      if (response.status === 200) {
-        alert(`Payroll sent successfully! ${payrollData.user_name} will receive an email with their payslip.`);
-        navigate(`/chd-app/${clinic_id}/members`);
-      }
-    } catch (error) {
-      console.error('Error sending payroll:', error);
-      let errorMessage = 'Failed to send payroll. Please try again.';
-
-      if (error.response?.data?.error) {
-        errorMessage = error.response.data.error;
-      } else if (error.response?.status === 403) {
-        errorMessage = 'You do not have permission to send payroll.';
-      } else if (error.response?.status === 400) {
-        errorMessage = 'Invalid payroll data. Please check the information and try again.';
-      }
-
-      setError(errorMessage);
-    } finally {
-      setIsSending(false);
-    }
-  };
+    setError(errorMessage);
+  } finally {
+    setIsSending(false);
+  }
+};
 
   // Helper function to determine if this is commission-based payroll
   const isCommissionBased = payrollData?.role_type?.includes('Commission') || false;
