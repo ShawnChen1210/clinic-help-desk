@@ -6,12 +6,6 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = '__all__'
 
-class SheetColumnPreferenceSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = SheetColumnPreference
-        fields = ['sheet_id', 'date_column', 'income_columns']
-
-
 class SiteSettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = SiteSettings

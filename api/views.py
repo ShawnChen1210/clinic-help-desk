@@ -1575,136 +1575,6 @@ class SpreadsheetViewSet(viewsets.ViewSet):
             # If merge fails, just return the new data with duplicates removed
             return self._remove_duplicate_rows(new_df, sheet_type)
 
-class AnalyticsViewSet(viewsets.ViewSet):
-    column_pref_queryset = SheetColumnPreference.objects.all()
-    authentication_classes = [SessionAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    # DEFAULT GET FUNCTION FOR GETTING USER PREFERENCES
-    def retrieve(self, request, pk=None):
-        sheet_id = pk
-        user = request.user
-
-        try:
-            preference = SheetColumnPreference.objects.get(user=user, sheet_id=sheet_id)
-            serializer = SheetColumnPreferenceSerializer(preference)
-            return Response(serializer.data)
-
-        except SheetColumnPreference.DoesNotExist:
-            # 4. If no preference is found, return a 404 error
-            return Response(
-                {'error': 'No preferences found for this sheet.'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-    # DEFAULT POST REQUEST FOR SETTING USER PREFERENCES
-    def create(self, request, pk=None):
-        sheet_id = pk
-        user = request.user
-        date_column = request.data.get('date_column')
-        income_columns = request.data.get('income_columns')
-
-        if not date_column or not income_columns:
-            return Response(
-                {'error': 'Both date_column and income_columns must be provided.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        try:
-            # This is the core logic. It finds a preference matching the user and sheet_id,
-            # or creates a new one if it doesn't exist.
-            preference, created = SheetColumnPreference.objects.update_or_create(
-                user=user,
-                sheet_id=sheet_id,
-                defaults={
-                    'date_column': date_column,
-                    'income_columns': income_columns,
-                }
-            )
-
-            status_text = "created" if created else "updated"
-            return Response({'status': f'Preference {status_text} successfully'}, status=status.HTTP_200_OK)
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    @action(detail=True, methods=['POST'])
-    def income_summary(self, request, pk=None):
-        try:
-            sheet_data, sheet_headers = padded_google_sheets(pk, 'Sheet1')
-            date_column = request.data.get('date_column')
-            income_columns = request.data.get('income_columns')
-            if not sheet_data:
-                return Response({
-                    'weekly': [],
-                    'monthly': [],
-                    'yearly': [],
-                })
-
-            df = pd.DataFrame(sheet_data, columns=sheet_headers)
-            actual_columns = set(df.columns)
-
-            # Check if the provided column names are valid
-            if date_column not in actual_columns:
-                return Response({'error': f"The date column '{date_column}' was not found in the sheet."}, status=400)
-
-            for col in income_columns:
-                if col not in actual_columns:
-                    return Response({'error': f"The income column '{col}' was not found in the sheet."}, status=400)
-
-            #data preparation
-            try:
-                df[date_column] = pd.to_datetime(df[date_column])
-                for income_column in income_columns:
-                    df[income_column] = pd.to_numeric(df[income_column])
-            except Exception as e:
-                return Response(
-                    {'error': f"Failed to convert columns. Ensure data is in the correct format. Details: {e}"},
-                    status=400)
-            df.set_index(date_column, inplace=True)
-            income_df = df[income_columns]
-
-            #Resample and sum each income column for each time period
-            weekly_subtotals = income_df.resample('W').sum()
-            monthly_subtotals = income_df.resample('M').sum()
-            yearly_subtotals = income_df.resample('Y').sum()
-
-            #Sum the columns together to get a single total for each time period
-            #axis=1 tells pandas to sum horizontally (across the columns)
-            weekly_totals = weekly_subtotals.sum(axis=1).rename('Total Income')
-            monthly_totals = monthly_subtotals.sum(axis=1).rename('Total Income')
-            yearly_totals = yearly_subtotals.sum(axis=1).rename('Total Income')
-
-            #formats total number to format for react charts
-            def format_report(series, date_format):
-                report_df = series.reset_index()
-                report_df[date_column] = report_df[date_column].dt.strftime(date_format)
-                return report_df.to_dict(orient='records')
-
-            return Response({
-                'weeklyReport': format_report(weekly_totals, '%Y-%m-%d'),
-                'monthlyReport': format_report(monthly_totals, '%Y-%m'),
-                'yearlyReport': format_report(yearly_totals, '%Y'),
-            })
-        except Exception as e:
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-    @action(detail=True, methods=['GET'])
-    def get_sheet_headers(self, request, pk=None):
-        try:
-            sheet_data, sheet_headers = padded_google_sheets(pk, 'A1:Z2')
-            return Response(
-                {'columns': sheet_headers},
-                status=status.HTTP_200_OK
-            )
-        except Exception as e:
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
 
 class PayrollViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
@@ -1756,6 +1626,8 @@ class PayrollViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def generate_payroll(self, request, pk=None):
+
+
         """Generate payroll for a specific user"""
         if not (request.user.is_staff or request.user.is_superuser):
             return Response(
@@ -1769,6 +1641,8 @@ class PayrollViewSet(viewsets.ModelViewSet):
 
             user = get_object_or_404(User, id=pk)
             user_profile = get_object_or_404(UserProfile, user=user)
+
+            user_profile.reset_annual_contributions_if_needed()
 
             # Get site settings
             site_settings = SiteSettings.objects.first()
@@ -3609,8 +3483,6 @@ class PayrollViewSet(viewsets.ModelViewSet):
 
             # Create PayrollRecords entry after successful email sending
             try:
-                from django.utils import timezone
-                import uuid
 
                 # Generate unique payroll number
                 payroll_number = f"PAY-{timezone.now().strftime('%Y%m%d')}-{user.id:04d}-{uuid.uuid4().hex[:6].upper()}"

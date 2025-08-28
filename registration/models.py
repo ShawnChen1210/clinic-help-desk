@@ -2,6 +2,7 @@ from django.db import models
 from django.contrib.auth.models import User
 from polymorphic.models import PolymorphicModel
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 
 
 class UserProfile(models.Model):
@@ -11,6 +12,17 @@ class UserProfile(models.Model):
     ytd_deduction = models.FloatField(default=0.0)
     cpp_contrib = models.FloatField(default=0.0)
     ei_contrib = models.FloatField(default=0.0)
+    contrib_year = models.IntegerField(default=timezone.now().year)
+
+    def reset_annual_contributions_if_needed(self):
+        """Reset CPP and EI contributions if we're in a new year"""
+        current_year = timezone.now().year
+        if self.contrib_year < current_year:
+            self.cpp_contrib = 0.0
+            self.ei_contrib = 0.0
+            self.contrib_year = current_year
+            self.save()
+            print(f"Reset annual contributions for {self.user.username} for year {current_year}")
 
     def __str__(self):
         return str(self.user)

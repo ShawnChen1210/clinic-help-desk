@@ -51,19 +51,6 @@ class ClinicSpreadsheet(models.Model):
             self.time_hour_sheet_id,
         ])
 
-# A new model to store a user's column preferences for a specific sheet. (for analytics)
-class SheetColumnPreference(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    sheet_id = models.CharField(max_length=255)
-    date_column = models.CharField(max_length=255)
-    income_columns = models.JSONField()
-
-    class Meta:
-        unique_together = ('user', 'sheet_id')
-
-    def __str__(self):
-        return f"{self.user.username}'s preference for {self.sheet_id}"
-
 class SiteSettings(models.Model):
     federal_tax_brackets = models.JSONField(default=list, help_text="Federal income tax brackets")
     provincial_tax_brackets = models.JSONField(default=list, help_text="Provincial income tax brackets")
@@ -98,7 +85,7 @@ class PayrollRecords(models.Model):
         blank=True
     )
     gst = models.DecimalField(max_digits=8, decimal_places=3)
-    total_income = models.DecimalField(max_digits=8, decimal_places=3)
+    total_income = models.DecimalField(max_digits=10, decimal_places=3)
 
     # Deductions
     commission_deduction = models.DecimalField(max_digits=8, decimal_places=3)
@@ -112,6 +99,7 @@ class PayrollRecords(models.Model):
     revenue_share_deduction_payee = models.ForeignKey(User, on_delete=models.CASCADE, related_name='revenue_share_deduction_payee_set', null=True, blank=True)
     total_deductions = models.DecimalField(max_digits=10, decimal_places=3)
 
+    net_payment = models.DecimalField(max_digits=10, decimal_places=3)
     notes = models.TextField(blank=True)
     payroll_number = models.CharField(max_length=50, unique=True)
 

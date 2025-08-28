@@ -6,7 +6,6 @@ from .views import *
 
 router = DefaultRouter()
 router.register(r'spreadsheets', SpreadsheetViewSet, basename='spreadsheet')
-router.register(r'analytics', AnalyticsViewSet, basename='analytics')
 router.register(r'members', MemberViewSet, basename='members')
 router.register(r'clinics', ClinicViewSet, basename='clinic')
 router.register(r'payroll', PayrollViewSet, basename='payroll')

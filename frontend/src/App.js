@@ -3,7 +3,6 @@ import {BrowserRouter, Routes, Route, Navigate} from 'react-router-dom';
 import SpreadSheet from './pages/Spreadsheet'
 import Dashboard from './pages/Dashboard';
 import UploadFile from './pages/UploadFiles';
-import Analytics from "./pages/Analytics";
 import {AppProviders} from "./context";
 import Members from "./pages/Members";
 import Payroll from "./pages/Payroll";
