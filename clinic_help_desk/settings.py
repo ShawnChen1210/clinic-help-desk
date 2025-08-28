@@ -26,7 +26,7 @@ SHARED_DRIVE_ID = '0AItIf3a1ARFYUk9PVA'
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-%q6g03+8a_i3h#_!$w9$%b*9r^=y#!!z=+ucqv4^t*l!j2rqhl'
+SECRET_KEY = os.getenv('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -164,8 +164,8 @@ EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'  # SMTP server host
 EMAIL_PORT = 587  # SMTP server port (587 for TLS, 465 for SSL)
 EMAIL_USE_TLS = True  # True for TLS, False for SSL
-EMAIL_HOST_USER = 'clinic.help.desk.app@gmail.com'  # SMTP server username
-EMAIL_HOST_PASSWORD = 'rtawjazowvgzobsm'  # SMTP server password
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
 EMAIL_USE_SSL = False  # Set to True if using SSL
 DEFAULT_FROM_EMAIL = 'clinic.help.desk.app@gmail.com'
 PASSWORD_RESET_TIMEOUT = 14400 #token available for 4 hours
@@ -196,3 +196,4 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 
 LOGIN_URL = '/registration/login_user/'
+
