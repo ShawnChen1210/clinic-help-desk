@@ -20,7 +20,7 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 GOOGLE_SERVICE_ACCOUNT_KEY = os.getenv("GOOGLE_SERVICE_ACCOUNT_KEY")
-GOOGLE_API_KEY = 'AIzaSyBY-HP2CegFAit1pb1wjLZaPk4ETiZWTdY'
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 SHARED_DRIVE_ID = '0AItIf3a1ARFYUk9PVA'
 
 # Quick-start development settings - unsuitable for production
