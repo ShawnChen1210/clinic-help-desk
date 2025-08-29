@@ -1,27 +1,24 @@
 from django.contrib import admin
 from django.urls import path, include, re_path
-from django.views.generic import TemplateView
 from django.conf import settings
-from django.views.static import serve
-from django.views.decorators.csrf import ensure_csrf_cookie
-
-
-#    This creates a view that will always set the CSRF cookie.
-react_app_view = ensure_csrf_cookie(TemplateView.as_view(template_name='index.html'))
+from django.conf.urls.static import static
+from api import views as api_views
 
 urlpatterns = [
-    # Your specific paths (admin, api) should come first
+    # 1. Your specific, high-priority URLs
     path('admin/', admin.site.urls),
     path('api/', include('api.api_urls')),
-
-    # Other apps
-    path('', include('api.urls')),
     path('registration/', include('django.contrib.auth.urls')),
     path('registration/', include('registration.urls')),
 
-    # Rules for React static files (like manifest.json)
-    re_path(r'^(?P<path>manifest\.json|favicon\.ico|robots\.txt|logo192\.png|logo512\.png)$',
-            serve, {'document_root': settings.BASE_DIR / 'frontend/build'}),
+    # 2. A catch-all for your React app, prefixed with 'chd-app/'
+    # This will match '/chd-app/', '/chd-app/dashboard', '/chd-app/some/other/route'
+    re_path(r'^chd-app/.*$', api_views.chd_app),
 
-    re_path(r'^.*$', react_app_view),
+    # 3. The root URL for your Django-rendered homepage
+    path('', include('api.urls')),
 ]
+
+# This part for serving static files in development stays the same
+if settings.DEBUG:
+    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
