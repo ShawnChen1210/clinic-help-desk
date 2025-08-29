@@ -3,13 +3,10 @@
 {% block title %} Register {% endblock %}
 
 {% block content %}
-<div class="form-container">
-    <form method="POST">
+ <form method="POST">
         {% csrf_token %}
         {{ form }}
-        <div class="form-group">
-            <input class="btn btn-primary btn-full" type="submit" value="Sign Up">
-        </div>
+        <input class="bg-gray-600 text-white rounded-md p-1.5" type="submit" value="Sign Up">
     </form>
-</div>
 {% endblock %}
+

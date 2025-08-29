@@ -5,8 +5,8 @@
 {% block content %}
     {% if messages %}
     {% for message in messages %}
-    <div class="message {% if message.tags == 'success' %}message-success{% else %}message-error{% endif %}">
-        {{ message }}
+    <div class="text-white bg-green-300 rounded-md">
+    {{ message }}
     </div>
     {% endfor %}
     {% endif %}
