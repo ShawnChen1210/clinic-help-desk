@@ -31,7 +31,6 @@ function App() {
             </Route>
             <Route path="settings" element={<SiteSettings />} />
           </Route>
-          <Route path="/" element={<ExternalRedirect to="/" />} />
         </Routes>
       </BrowserRouter>
     </AppProviders>
