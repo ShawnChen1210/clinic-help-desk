@@ -3,9 +3,13 @@
 {% block title %} Log In {% endblock %}
 
 {% block content %}
-<form method="POST">
+<div class="form-container">
+    <form method="POST">
         {% csrf_token %}
         {{ form }}
-        <input class="bg-gray-600 text-white rounded-md p-1.5" type="submit" value="Login">
+        <div class="form-group">
+            <input class="btn btn-primary btn-full" type="submit" value="Login">
+        </div>
     </form>
+</div>
 {% endblock %}

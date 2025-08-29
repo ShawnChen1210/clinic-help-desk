@@ -3,36 +3,36 @@
 {% block title %} Profile {% endblock %}
 
 {% block content %}
-<div class="py-8 px-4">
-    <div class="max-w-2xl mx-auto">
+<div class="profile-container">
+    <div class="profile-content">
         <!-- Header -->
-        <div class="text-center mb-8">
-            <h1 class="text-3xl font-bold text-gray-900 mb-2">Edit Profile</h1>
-            <p class="text-gray-600">Update your personal information and preferences</p>
+        <div class="page-header">
+            <h1 class="page-title">Edit Profile</h1>
+            <p class="page-subtitle">Update your personal information and preferences</p>
         </div>
 
         <!-- Messages -->
         {% if messages %}
             {% for message in messages %}
-                <div class="mb-6 p-4 rounded border {% if message.tags == 'success' %}bg-gray-50 border-gray-300 text-gray-700{% elif message.tags == 'error' %}bg-gray-100 border-gray-400 text-gray-800{% else %}bg-gray-50 border-gray-300 text-gray-700{% endif %}">
+                <div class="message {% if message.tags == 'success' %}message-success{% elif message.tags == 'error' %}message-error{% else %}message-success{% endif %}">
                     {{ message }}
                 </div>
             {% endfor %}
         {% endif %}
 
         <!-- Payment Roles Display -->
-        <div class="border border-gray-200 rounded mb-6">
-            <div class="border-b border-gray-200 px-6 py-4">
-                <h2 class="text-xl font-semibold text-gray-900">Payment Roles</h2>
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Payment Roles</h2>
             </div>
-            <div class="p-6 space-y-6">
+            <div class="card-body">
                 <!-- Primary Payment Role -->
-                <div class="border-b border-gray-200 pb-6">
-                    <h3 class="text-lg font-medium text-gray-900 mb-4">Primary Payment Role</h3>
+                <div class="section-spacing section-border">
+                    <h3 class="section-title">Primary Payment Role</h3>
                     {% if primary_role_details %}
-                        <div class="bg-gray-50 p-4 rounded">
-                            <div class="flex justify-between items-start mb-2">
-                                <span class="font-medium text-gray-900">
+                        <div class="role-card">
+                            <div class="role-header">
+                                <span class="role-name">
                                     {% if primary_role_details.employment_type %}
                                         {{ primary_role_details.employment_type }}
                                         {% if primary_role_details.hourly_wage %}
@@ -44,70 +44,70 @@
                                         {{ primary_role_details.type }}
                                     {% endif %}
                                 </span>
-                                <span class="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded">Primary</span>
+                                <span class="badge badge-primary">Primary</span>
                             </div>
 
                             {% if primary_role_details.hourly_wage %}
-                                <p class="text-gray-600">Hourly Wage: ${{ primary_role_details.hourly_wage }}</p>
+                                <p class="role-details">Hourly Wage: ${{ primary_role_details.hourly_wage }}</p>
                             {% elif primary_role_details.commission_rate %}
-                                <p class="text-gray-600">Commission Rate: {{ primary_role_details.commission_rate }}%</p>
+                                <p class="role-details">Commission Rate: {{ primary_role_details.commission_rate }}%</p>
                             {% endif %}
 
                             {% if primary_role_details.payment_frequency %}
-                                <div class="mt-2">
-                                    <p class="text-sm text-gray-600">Payment Frequency:</p>
-                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium mt-1 bg-gray-300">
+                                <div style="margin-top: 0.5rem;">
+                                    <p class="role-details">Payment Frequency:</p>
+                                    <span class="badge" style="background-color: #d1d5db; color: #374151; margin-top: 0.25rem; display: inline-block;">
                                         {{ primary_role_details.payment_frequency|capfirst }}
                                     </span>
                                 </div>
                             {% endif %}
                         </div>
                     {% else %}
-                        <div class="bg-yellow-50 border border-yellow-200 p-4 rounded">
-                            <p class="text-yellow-800">No primary payment role assigned. Contact administrator to set up your payment details.</p>
+                        <div class="warning-box">
+                            <p class="warning-text">No primary payment role assigned. Contact administrator to set up your payment details.</p>
                         </div>
                     {% endif %}
                 </div>
 
                 <!-- Additional Payment Roles -->
-                <div>
-                    <h3 class="text-lg font-medium text-gray-900 mb-4">Additional Payment Roles</h3>
+                <div class="section-spacing">
+                    <h3 class="section-title">Additional Payment Roles</h3>
                     {% if additional_roles %}
-                        <div class="space-y-3">
+                        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
                             {% for role in additional_roles %}
-                                <div class="bg-gray-50 p-4 rounded">
-                                    <div class="flex justify-between items-start mb-2">
-                                        <span class="font-medium text-gray-900">
+                                <div class="role-card">
+                                    <div class="role-header">
+                                        <span class="role-name">
                                             {% if role.type_display %}
                                                 {{ role.type_display }}
                                             {% else %}
                                                 {{ role.type }}
                                             {% endif %}
                                         </span>
-                                        <span class="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded">Additional</span>
+                                        <span class="badge badge-secondary">Additional</span>
                                     </div>
 
                                     {% if role.description %}
-                                        <p class="text-gray-600 text-sm mb-2">{{ role.description }}</p>
+                                        <p class="role-details" style="margin-bottom: 0.5rem;">{{ role.description }}</p>
                                     {% endif %}
 
                                     {% if role.sharing_rate %}
-                                        <p class="text-gray-600">Sharing Rate: {{ role.sharing_rate }}%</p>
+                                        <p class="role-details">Sharing Rate: {{ role.sharing_rate }}%</p>
                                     {% endif %}
 
                                     {% if role.target_user %}
-                                        <p class="text-gray-600">Target User: {{ role.target_user.username }}</p>
+                                        <p class="role-details">Target User: {{ role.target_user.username }}</p>
                                     {% endif %}
 
                                     {% if role.monthly_rent %}
-                                        <p class="text-gray-600">Monthly Rent: ${{ role.monthly_rent }}</p>
+                                        <p class="role-details">Monthly Rent: ${{ role.monthly_rent }}</p>
                                     {% endif %}
                                 </div>
                             {% endfor %}
                         </div>
                     {% else %}
-                        <div class="bg-gray-50 border border-gray-200 p-4 rounded">
-                            <p class="text-gray-600">No additional payment roles assigned.</p>
+                        <div class="info-box">
+                            <p class="info-text">No additional payment roles assigned.</p>
                         </div>
                     {% endif %}
                 </div>
@@ -115,52 +115,50 @@
         </div>
 
         <!-- Form -->
-        <div class="border border-gray-200 rounded">
-            <div class="border-b border-gray-200 px-6 py-4">
-                <h2 class="text-xl font-semibold text-gray-900">Profile Settings</h2>
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Profile Settings</h2>
             </div>
 
-            <form method="post" class="p-6 space-y-6">
+            <form method="post" class="card-body">
                 {% csrf_token %}
 
                 <!-- Personal Information Section -->
-                <div class="border-b border-gray-200 pb-6">
-                    <h3 class="text-lg font-medium text-gray-900 mb-4">Personal Information</h3>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="form-section section-border">
+                    <h3 class="form-section-title">Personal Information</h3>
+                    <div class="form-grid">
                         <!-- Username -->
-                        <div>
-                            <label for="username" class="block text-sm font-medium text-gray-700 mb-2">Username</label>
+                        <div class="form-group">
+                            <label for="username" class="form-label">Username</label>
                             <input type="text" id="username" name="username" value="{{ user.username }}" required
-                                   class="w-full px-4 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-gray-500 focus:border-gray-500">
+                                   class="form-input">
                         </div>
 
                         <!-- First Name -->
-                        <div>
-                            <label for="first_name" class="block text-sm font-medium text-gray-700 mb-2">First Name</label>
+                        <div class="form-group">
+                            <label for="first_name" class="form-label">First Name</label>
                             <input type="text" id="first_name" name="first_name" value="{{ user.first_name }}"
-                                   class="w-full px-4 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-gray-500 focus:border-gray-500">
+                                   class="form-input">
                         </div>
 
                         <!-- Last Name -->
-                        <div>
-                            <label for="last_name" class="block text-sm font-medium text-gray-700 mb-2">Last Name</label>
+                        <div class="form-group">
+                            <label for="last_name" class="form-label">Last Name</label>
                             <input type="text" id="last_name" name="last_name" value="{{ user.last_name }}"
-                                   class="w-full px-4 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-gray-500 focus:border-gray-500">
+                                   class="form-input">
                         </div>
-
                     </div>
                 </div>
 
                 <!-- Payment Frequency Section -->
                 {% if primary_role_details %}
-                <div>
-                    <h3 class="text-lg font-medium text-gray-900 mb-4">Payment Frequency</h3>
-                    <p class="text-sm text-gray-600 mb-4">Select how often you receive payments.</p>
+                <div class="form-section">
+                    <h3 class="form-section-title">Payment Frequency</h3>
+                    <p class="form-section-description">Select how often you receive payments.</p>
 
-                    <div>
-                        <label for="payment_frequency" class="block text-sm font-medium text-gray-700 mb-2">Payment Frequency</label>
-                        <select id="payment_frequency" name="payment_frequency"
-                                class="w-full px-4 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-gray-500 focus:border-gray-500">
+                    <div class="form-group">
+                        <label for="payment_frequency" class="form-label">Payment Frequency</label>
+                        <select id="payment_frequency" name="payment_frequency" class="form-select">
                             <option value="weekly" {% if primary_role_details.payment_frequency == 'weekly' %}selected{% endif %}>Weekly</option>
                             <option value="bi-weekly" {% if primary_role_details.payment_frequency == 'bi-weekly' %}selected{% endif %}>Bi-weekly</option>
                             <option value="semi-monthly" {% if primary_role_details.payment_frequency == 'semi-monthly' %}selected{% endif %}>Semi-monthly</option>
@@ -171,9 +169,8 @@
                 {% endif %}
 
                 <!-- Submit Button -->
-                <div class="pt-6">
-                    <button type="submit"
-                            class="w-full bg-gray-800 text-white py-3 px-6 rounded font-medium hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2">
+                <div style="padding-top: 1.5rem;">
+                    <button type="submit" class="btn btn-primary btn-full">
                         Update Profile
                     </button>
                 </div>
