@@ -131,6 +131,7 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
+# Use standard Django storage for production with nginx
 STORAGES = {
     "default": {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
@@ -146,11 +147,9 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 STATICFILES_DIRS = [
     BASE_DIR / 'static',
-    BASE_DIR / 'frontend/build',
-    BASE_DIR / "frontend/build/static", #directory for the stored static files that react returns
+    BASE_DIR / 'frontend/build/static',  # Only include the built static files
 ]
 
- # Enable manifest
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
@@ -196,4 +195,3 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 
 LOGIN_URL = '/registration/login_user/'
-
