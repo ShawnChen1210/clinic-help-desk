@@ -19,7 +19,7 @@ load_dotenv()
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-GOOGLE_SERVICE_ACCOUNT_KEY = os.path.join(BASE_DIR, 'clinic-help-desk-8dba30a80adf.json')
+GOOGLE_SERVICE_ACCOUNT_KEY = os.getenv("GOOGLE_SERVICE_ACCOUNT_KEY")
 GOOGLE_API_KEY = 'AIzaSyBY-HP2CegFAit1pb1wjLZaPk4ETiZWTdY'
 SHARED_DRIVE_ID = '0AItIf3a1ARFYUk9PVA'
 
