@@ -2,7 +2,7 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, get_object_or_404
 from decimal import Decimal, ROUND_HALF_UP
 from rest_framework import viewsets, status
-from rest_framework.decorators import api_view, action
+from rest_framework.decorators import api_view, action, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.authentication import SessionAuthentication
@@ -20,6 +20,7 @@ from datetime import datetime, timedelta
 import uuid
 from .models import *
 from collections import defaultdict
+from rest_framework.permissions import AllowAny
 
 # Create your views here.
 
@@ -32,6 +33,7 @@ def home(request):
     return render(request, 'home.html')
 
 @api_view(['GET'])
+@permission_classes([AllowAny])
 def get_csrf(request):
     """
     A simple view to get the CSRF token.
