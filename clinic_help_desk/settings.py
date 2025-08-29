@@ -173,7 +173,7 @@ PASSWORD_RESET_TIMEOUT = 14400 #token available for 4 hours
 
 #tailwind stuff
 TAILWIND_APP_NAME = 'theme'
-NPM_BIN_PATH = "C:/Program Files/nodejs/npm.cmd"
+NPM_BIN_PATH = os.getenv('NPM_BIN_PATH')
 
 # CORS settings for development
 CORS_ALLOWED_ORIGINS = [
