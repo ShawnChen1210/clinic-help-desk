@@ -635,12 +635,13 @@ class PayrollViewSet(viewsets.ModelViewSet):
             return None
 
     def _calculate_pos_fees_for_practitioner(self, invoice_data, clinic_spreadsheet):
-        # UPDATED: Massively optimized to make only two API calls instead of reading sheets in a loop.
         """
         Calculate total POS fees for a practitioner using the matching algorithm.
+        UPDATED: Fixed date parsing warnings and improved matching logic
         """
         try:
             if not invoice_data:
+                print("No invoice data provided for POS fee calculation")
                 return 0.0
 
             transaction_sheet_id = clinic_spreadsheet.transaction_report_sheet_id
@@ -653,54 +654,124 @@ class PayrollViewSet(viewsets.ModelViewSet):
             # Find the date range needed for the query
             invoice_dates = {item['invoice_date'] for item in invoice_data if item['invoice_date']}
             if not invoice_dates:
+                print("No valid invoice dates found in invoice data")
                 return 0.0
             min_date, max_date = min(invoice_dates), max(invoice_dates)
+
+            print(f"Searching for POS fees in date range: {min_date} to {max_date}")
+            print(f"Processing {len(invoice_data)} invoices for POS fee matching")
 
             # Make one efficient call for each sheet to get all potentially relevant data
             transaction_df = read_sheet_by_date_range(transaction_sheet_id, "Payment Date", min_date, max_date)
             payment_df = read_sheet_by_date_range(payment_sheet_id, "Date", min_date, max_date)
 
-            if transaction_df.empty or payment_df.empty:
+            if transaction_df.empty:
+                print("No transaction data found in the specified date range")
+                return 0.0
+            if payment_df.empty:
+                print("No payment data found in the specified date range")
                 return 0.0
 
+            print(f"Found {len(transaction_df)} transaction records and {len(payment_df)} payment records")
+
+            # UPDATED: More robust date parsing with multiple format attempts
+            def safe_date_parse(df, column_name):
+                print(f"Parsing dates in column '{column_name}'...")
+
+                # First, try to detect if dates are already datetime objects
+                if pd.api.types.is_datetime64_any_dtype(df[column_name]):
+                    return df[column_name]
+
+                # Try multiple date formats in order of likelihood
+                date_formats = ['%Y-%m-%d', '%m/%d/%Y', '%d/%m/%Y', '%Y/%m/%d', '%m-%d-%Y', '%d-%m-%Y']
+
+                for fmt in date_formats:
+                    try:
+                        parsed_dates = pd.to_datetime(df[column_name], format=fmt, errors='coerce')
+                        valid_count = parsed_dates.notna().sum()
+                        if valid_count > len(df) * 0.5:  # If more than 50% parse successfully
+                            print(f"Successfully parsed {valid_count}/{len(df)} dates using format {fmt}")
+                            return parsed_dates
+                    except Exception as e:
+                        continue
+
+                # Fallback to pandas auto-inference
+                print("Falling back to pandas auto-inference for date parsing...")
+                try:
+                    return pd.to_datetime(df[column_name], infer_datetime_format=True, errors='coerce')
+                except Exception as e:
+                    print(f"Date parsing failed: {e}")
+                    return pd.to_datetime(df[column_name], errors='coerce')
+
+            # Parse dates with improved logic
+            transaction_df['Payment Date'] = safe_date_parse(transaction_df, 'Payment Date')
+            payment_df['Date'] = safe_date_parse(payment_df, 'Date')
+
             total_pos_fees = 0.0
+            matched_invoices = 0
+
             for invoice_info in invoice_data:
-                # ... (the inner loop logic for matching remains the same but now operates on pre-fetched DataFrames)
                 invoice_date = invoice_info['invoice_date']
                 base_invoice_number = invoice_info['invoice_number']
                 patient_name = invoice_info['patient_name']
+                invoice_amount = invoice_info.get('adjusted_total', 0)
 
                 if not all([invoice_date, base_invoice_number, patient_name]):
+                    print(
+                        f"Skipping invoice with missing data: date={invoice_date}, number={base_invoice_number}, patient={patient_name}")
                     continue
 
+                print(
+                    f"Searching POS fees for: {patient_name}, Invoice {base_invoice_number}, Date {invoice_date}, Amount ${invoice_amount}")
+
+                # Find matching transactions
                 matching_transactions = transaction_df[
-                    (pd.to_datetime(transaction_df['Payment Date']).dt.date == invoice_date) &
+                    (transaction_df['Payment Date'].dt.date == invoice_date) &
                     (transaction_df['Payer'].str.contains(patient_name, case=False, na=False)) &
                     (transaction_df['Payment Method'].str.contains('Jane Payments', case=False, na=False)) &
                     (transaction_df['Applied To'].str.contains(base_invoice_number, na=False))
                     ]
 
                 if matching_transactions.empty:
+                    print(f"No matching transactions found for {patient_name} - {base_invoice_number}")
                     continue
+
+                print(f"Found {len(matching_transactions)} matching transaction(s)")
 
                 for _, transaction in matching_transactions.iterrows():
                     transaction_amount = pd.to_numeric(transaction.get('Amount', 0), errors='coerce') or 0
+                    print(f"  Transaction amount: ${transaction_amount}")
 
+                    # Find matching payments
                     matching_payments = payment_df[
-                        (pd.to_datetime(payment_df['Date']).dt.date == invoice_date) &
+                        (payment_df['Date'].dt.date == invoice_date) &
                         (payment_df['Customer'].str.contains(patient_name, case=False, na=False)) &
                         (pd.to_numeric(payment_df['Customer Charge'], errors='coerce').fillna(0).round(2) == round(
                             float(transaction_amount), 2))
                         ]
 
+                    if matching_payments.empty:
+                        print(f"  No matching payments found for transaction amount ${transaction_amount}")
+                        continue
+
+                    print(f"  Found {len(matching_payments)} matching payment(s)")
+
                     for _, payment in matching_payments.iterrows():
                         jane_fee = pd.to_numeric(payment.get('Jane Payments Fee', 0), errors='coerce') or 0
-                        total_pos_fees += float(jane_fee)
+                        if jane_fee > 0:
+                            total_pos_fees += float(jane_fee)
+                            matched_invoices += 1
+                            print(f"  ✅ POS Fee found: ${jane_fee}")
+                        else:
+                            print(f"  No POS fee in this payment record")
 
-            print(f"Total calculated POS fees: ${total_pos_fees}")
+            print(f"✅ Total POS fees calculated: ${total_pos_fees} from {matched_invoices} matched invoices")
             return total_pos_fees
+
         except Exception as e:
-            print(f"Error calculating POS fees: {str(e)}")
+            print(f"❌ Error calculating POS fees: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return 0.0
 
     def _calculate_vacation_pay_only(self, gross_income, site_settings):
@@ -720,6 +791,7 @@ class PayrollViewSet(viewsets.ModelViewSet):
                                       end_date, period_days):
         """
         Calculate payroll for commission-based roles
+        Updated to apply commission rate before GST and treat GST as deduction
         """
         try:
             payment_detail = user_profile.payment_detail
@@ -729,17 +801,19 @@ class PayrollViewSet(viewsets.ModelViewSet):
             tax_gst = Decimal(str(commission_data['tax_gst']))
             pos_fees_decimal = Decimal(str(pos_fees))
 
-            gross_income = adjusted_total + tax_gst
-
-            # Calculate commission properly
-            # Note: commission_rate is already stored as a decimal (e.g., 0.79 = 79%)
+            # UPDATED: Apply commission rate to adjusted_total (before GST)
             commission_rate_decimal = Decimal(str(payment_detail.commission_rate))  # Already a decimal
-            commission_income = gross_income * commission_rate_decimal  # What practitioner keeps
-            commission_deduction = gross_income * (Decimal('1') - commission_rate_decimal)  # What company keeps
+            commission_income = adjusted_total * commission_rate_decimal  # What practitioner keeps from pre-GST amount
+            commission_deduction = adjusted_total * (
+                        Decimal('1') - commission_rate_decimal)  # What company keeps from pre-GST amount
+
+            # Total gross income still includes GST for reporting purposes
+            gross_income = adjusted_total + tax_gst
 
             if isinstance(payment_detail, CommissionContractor):
                 # Contractor: Simple calculation, no tax deductions
-                net_payment = commission_income - pos_fees_decimal  # Practitioner gets their commission minus POS fees
+                # UPDATED: Net payment = commission income - POS fees - GST
+                net_payment = commission_income - pos_fees_decimal - tax_gst
 
                 payroll_data = {
                     'user_id': user.id,
@@ -754,19 +828,22 @@ class PayrollViewSet(viewsets.ModelViewSet):
                         'tax_gst': float(tax_gst),
                         'commission_earned': float(commission_income),
                         'pos_fees': float(pos_fees_decimal),
-                        'salary': float(net_payment),  # For template compatibility
+                        'salary': float(commission_income),
+                        # For template compatibility - commission income before deductions
                     },
                     'deductions': {
                         'federal_tax': 0.0,
                         'provincial_tax': 0.0,
                         'cpp': 0.0,
                         'ei': 0.0,
-                        'commission_deduction': float(commission_deduction),  # Fixed: This is what company keeps
+                        'commission_deduction': float(commission_deduction),  # Company's share from pre-GST
                         'pos_fees': float(pos_fees_decimal),
+                        'gst_deduction': float(tax_gst),  # UPDATED: GST as separate deduction
                     },
                     'totals': {
-                        'total_earnings': float(gross_income),
-                        'total_deductions': float(commission_deduction + pos_fees_decimal),
+                        'total_earnings': float(gross_income),  # UPDATED: Show gross income in totals
+                        'total_deductions': float(commission_deduction + pos_fees_decimal + tax_gst),
+                        # UPDATED: Include commission deduction
                         'net_payment': float(net_payment),
                     },
                     'ytd_amounts': {
@@ -778,16 +855,18 @@ class PayrollViewSet(viewsets.ModelViewSet):
                         'gross_before_fees': float(gross_income),
                         'commission_income': float(commission_income),
                         'commission_deduction': float(commission_deduction),
+                        'gst_amount': float(tax_gst),  # UPDATED: Track GST separately
                     }
                 }
 
             elif isinstance(payment_detail, CommissionEmployee):
                 # Employee: Add vacation pay and calculate tax deductions
+                # UPDATED: Calculate vacation pay on commission income (not gross)
                 vacation_pay = self._calculate_vacation_pay_only(float(commission_income), site_settings)
                 vacation_pay_decimal = Decimal(str(vacation_pay))
 
-                # Total taxable income is commission income + vacation pay - pos fees
-                total_before_tax_deductions = commission_income + vacation_pay_decimal - pos_fees_decimal
+                # UPDATED: Total taxable income = commission income + vacation pay - pos fees - GST
+                total_before_tax_deductions = commission_income + vacation_pay_decimal - pos_fees_decimal - tax_gst
 
                 # Calculate tax deductions on the taxable amount
                 deductions_result = self.calculate_deductions(
@@ -813,20 +892,22 @@ class PayrollViewSet(viewsets.ModelViewSet):
                         'commission_earned': float(commission_income),
                         'vacation_pay': vacation_pay,
                         'pos_fees': float(pos_fees_decimal),
-                        'salary': float(total_before_tax_deductions),  # For template compatibility
+                        'salary': float(commission_income + vacation_pay_decimal),  # Commission + vacation for template
                     },
                     'deductions': {
                         'federal_tax': deductions_result['deductions']['federal_tax'],
                         'provincial_tax': deductions_result['deductions']['provincial_tax'],
                         'cpp': deductions_result['deductions']['cpp'],
                         'ei': deductions_result['deductions']['ei'],
-                        'commission_deduction': float(commission_deduction),  # Fixed: This is what company keeps
+                        'commission_deduction': float(commission_deduction),  # Company's share from pre-GST
                         'pos_fees': float(pos_fees_decimal),
+                        'gst_deduction': float(tax_gst),  # UPDATED: GST as separate deduction
                     },
                     'totals': {
-                        'total_earnings': float(gross_income + vacation_pay_decimal),
-                        'total_deductions': float(commission_deduction + pos_fees_decimal) + deductions_result[
-                            'total_deductions'],
+                        'total_earnings': float(gross_income + vacation_pay_decimal),  # UPDATED: Gross + vacation
+                        'total_deductions': float(commission_deduction + pos_fees_decimal + tax_gst) +
+                                            deductions_result['total_deductions'],
+                        # UPDATED: Include commission deduction
                         'net_payment': float(net_payment),
                     },
                     'ytd_amounts': {
@@ -841,6 +922,7 @@ class PayrollViewSet(viewsets.ModelViewSet):
                         'ei_ytd_after': deductions_result['ei_ytd_after'],
                         'commission_income': float(commission_income),
                         'commission_deduction': float(commission_deduction),
+                        'gst_amount': float(tax_gst),  # UPDATED: Track GST separately
                     }
                 }
 
@@ -1292,6 +1374,7 @@ class PayrollViewSet(viewsets.ModelViewSet):
         This contains the logic that was previously duplicated inside the large if/elif block.
         """
         is_employee = isinstance(payment_detail, (HourlyEmployee, CommissionEmployee))
+        is_commission = isinstance(payment_detail, (CommissionEmployee, CommissionContractor))  # Add this check
 
         if is_employee:
             original_total_earnings = Decimal(str(payroll_data['totals']['total_earnings']))
@@ -1338,6 +1421,18 @@ class PayrollViewSet(viewsets.ModelViewSet):
         # Add deductions to breakdown for display
         payroll_data['deductions']['rent'] = float(rent_deduction)
         payroll_data['deductions']['revenue_share_deduction'] = float(revenue_share_deduction)
+
+        # UPDATED: Fix total_earnings for commission roles to show gross income
+        if is_commission and 'gross_income' in payroll_data.get('earnings', {}):
+            # For commission roles, ensure total_earnings shows the full gross income (before commission deduction)
+            # This may have been overridden during revenue sharing calculations
+            gross_income = Decimal(str(payroll_data['earnings']['gross_income']))
+            if total_revenue_share_income > 0:
+                # If there's revenue sharing income, add it to gross income for total earnings
+                payroll_data['totals']['total_earnings'] = float(
+                    gross_income + Decimal(str(total_revenue_share_income)))
+            else:
+                payroll_data['totals']['total_earnings'] = float(gross_income)
 
         return payroll_data
 
@@ -1445,15 +1540,16 @@ class PayrollViewSet(viewsets.ModelViewSet):
             def format_currency(amount):
                 return f"{float(amount or 0):.2f}"
 
-            # Get earnings data
+            # UPDATED: Use payroll_data directly instead of recalculating
             earnings = payroll_data.get('earnings', {})
             breakdown = payroll_data.get('breakdown', {})
             deductions = payroll_data.get('deductions', {})
+            totals = payroll_data.get('totals', {})
 
             # Determine if this is commission-based payroll
             is_commission = 'Commission' in payroll_data.get('role_type', '')
 
-            # Prepare context for template
+            # Prepare context for template - UPDATED: Use edited values from payroll_data
             context = {
                 'user': user,
                 'user_name': f"{user.first_name} {user.last_name}".strip() or user.username,
@@ -1461,16 +1557,19 @@ class PayrollViewSet(viewsets.ModelViewSet):
                 'pay_period_end': payroll_data.get('pay_period_end', ''),
                 'role_type': payroll_data.get('role_type', ''),
 
-                # Common fields
+                # UPDATED: Use totals from edited data, with special handling for commission
                 'salary_amount': format_currency(earnings.get('salary', 0)),
-                'total_earnings': format_currency(payroll_data.get('totals', {}).get('total_earnings', 0)),
-                'total_deductions': format_currency(payroll_data.get('totals', {}).get('total_deductions', 0)),
-                'net_payment': format_currency(payroll_data.get('totals', {}).get('net_payment', 0)),
+                'total_earnings': format_currency(
+                    earnings.get('gross_income', 0) if is_commission else totals.get('total_earnings', 0)),
+                'total_deductions': format_currency(totals.get('total_deductions', 0)),
+                'net_payment': format_currency(totals.get('net_payment', 0)),
                 'ytd_earnings': format_currency(payroll_data.get('ytd_amounts', {}).get('earnings', 0)),
                 'ytd_deductions': format_currency(payroll_data.get('ytd_amounts', {}).get('deductions', 0)),
                 'notes': payroll_data.get('notes', ''),
                 'company_name': 'Alternative Therapy On the Go Inc.',
                 'company_address': '23 - 7330 122nd Street, Surrey, BC V3W 1B4',
+
+                # UPDATED: Use edited deduction values
                 'rent': format_currency(deductions.get('rent', 0)),
                 'rent_description': deductions.get('rent_description', ''),
                 'revenue_share_income': format_currency(earnings.get('revenue_share_income', 0)),
@@ -1482,26 +1581,25 @@ class PayrollViewSet(viewsets.ModelViewSet):
             }
 
             if is_commission:
-                # Commission-specific context
+                # Commission-specific context - UPDATED: Use edited values
                 context.update({
                     'commission_rate': f"{float(payroll_data.get('commission_rate', 0)) * 100:.1f}%",
-                    # Convert to percentage
                     'gross_income': format_currency(earnings.get('gross_income', 0)),
                     'adjusted_total': format_currency(earnings.get('adjusted_total', 0)),
                     'tax_gst': format_currency(earnings.get('tax_gst', 0)),
                     'commission_deduction': format_currency(deductions.get('commission_deduction', 0)),
                     'commission_earned': format_currency(earnings.get('commission_earned', 0)),
-                    'pos_fees': format_currency(earnings.get('pos_fees', 0)),
+                    'pos_fees': format_currency(deductions.get('pos_fees', 0) or earnings.get('pos_fees', 0)),
                     'vacation_pay': format_currency(earnings.get('vacation_pay', 0)) if earnings.get('vacation_pay',
                                                                                                      0) > 0 else "0.00",
 
-                    # Tax deductions (for commission employees)
+                    # Tax deductions (for commission employees) - UPDATED: Use edited values
                     'federal_tax': format_currency(deductions.get('federal_tax', 0)),
                     'provincial_tax': format_currency(deductions.get('provincial_tax', 0)),
                     'cpp': format_currency(deductions.get('cpp', 0)),
                     'ei': format_currency(deductions.get('ei', 0)),
 
-                    # YTD Contributions for checking caps
+                    # YTD Contributions - UPDATED: Use edited breakdown values
                     'cpp_ytd_before': format_currency(
                         (breakdown.get('cpp_ytd_after', 0) or 0) - (deductions.get('cpp', 0) or 0)),
                     'cpp_ytd_after': format_currency(breakdown.get('cpp_ytd_after', 0)),
@@ -1510,12 +1608,12 @@ class PayrollViewSet(viewsets.ModelViewSet):
                     'ei_ytd_after': format_currency(breakdown.get('ei_ytd_after', 0)),
                 })
             else:
-                # Hourly-based context
+                # Hourly-based context - UPDATED: Use edited values
                 context.update({
                     'total_hours': payroll_data.get('total_hours', 0),
                     'hourly_wage': format_currency(payroll_data.get('hourly_wage', 0)),
 
-                    # Earnings breakdown for hourly employees
+                    # Earnings breakdown for hourly employees - UPDATED: Use edited values
                     'earnings': {
                         'regular_pay': format_currency(earnings.get('regular_pay', 0)),
                         'overtime_pay': format_currency(earnings.get('overtime_pay', 0)),
@@ -1528,13 +1626,13 @@ class PayrollViewSet(viewsets.ModelViewSet):
                         'overtime_hours': breakdown.get('overtime_hours', 0),
                     },
 
-                    # Tax deductions for hourly employees
+                    # Tax deductions for hourly employees - UPDATED: Use edited values
                     'federal_tax': format_currency(deductions.get('federal_tax', 0)),
                     'provincial_tax': format_currency(deductions.get('provincial_tax', 0)),
                     'cpp': format_currency(deductions.get('cpp', 0)),
                     'ei': format_currency(deductions.get('ei', 0)),
 
-                    # YTD Contributions for checking caps (hourly employees)
+                    # YTD Contributions for checking caps (hourly employees) - UPDATED: Use edited values
                     'cpp_ytd_before': format_currency(
                         (breakdown.get('cpp_ytd_after', 0) or 0) - (deductions.get('cpp', 0) or 0)),
                     'cpp_ytd_after': format_currency(breakdown.get('cpp_ytd_after', 0)),

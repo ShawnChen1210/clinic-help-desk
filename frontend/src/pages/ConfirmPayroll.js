@@ -12,6 +12,7 @@ export default function ConfirmPayroll() {
   const { formatDateString } = useDateFormatter();
 
   const [payrollData, setPayrollData] = useState(null);
+  const [editedPayrollData, setEditedPayrollData] = useState(null); // NEW: Track edited data
   const [notes, setNotes] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState(null);
@@ -20,6 +21,7 @@ export default function ConfirmPayroll() {
     if (location.state?.payrollData) {
       const data = location.state.payrollData;
       setPayrollData(data);
+      setEditedPayrollData(data); // NEW: Initialize edited data
     } else {
       navigate(`/chd-app/${clinic_id}/payroll/${userId}`);
     }
@@ -29,8 +31,16 @@ export default function ConfirmPayroll() {
     navigate(`/chd-app/${clinic_id}/members`);
   };
 
+  // NEW: Handle data changes from the editable table
+  const handlePayrollDataChange = (newData) => {
+    setEditedPayrollData(newData);
+  };
+
 const handleSendPayroll = async () => {
-  if (!payrollData) {
+  // UPDATED: Use edited data instead of original data
+  const dataToSend = editedPayrollData || payrollData;
+
+  if (!dataToSend) {
     setError('No payroll data available');
     return;
   }
@@ -40,9 +50,9 @@ const handleSendPayroll = async () => {
 
   try {
     const payrollPayload = {
-      ...payrollData,
+      ...dataToSend, // UPDATED: Use edited data
       notes: notes.trim(),
-      clinic_id: clinic_id, // Pass clinic_id from URL params
+      clinic_id: clinic_id,
     };
 
     // Debug logging
@@ -52,7 +62,7 @@ const handleSendPayroll = async () => {
     const response = await api.post(`/api/payroll/${userId}/send_payroll/`, payrollPayload);
 
     if (response.status === 200) {
-      alert(`Payroll sent successfully! ${payrollData.user_name} will receive an email with their payslip.`);
+      alert(`Payroll sent successfully! ${dataToSend.user_name} will receive an email with their payslip.`);
       navigate(`/chd-app/${clinic_id}/members`);
     }
   } catch (error) {
@@ -73,10 +83,13 @@ const handleSendPayroll = async () => {
   }
 };
 
+  // UPDATED: Use edited data for display calculations
+  const currentPayrollData = editedPayrollData || payrollData;
+
   // Helper function to determine if this is commission-based payroll
-  const isCommissionBased = payrollData?.role_type?.includes('Commission') || false;
-  const isHourlyBased = payrollData?.role_type?.includes('Hourly') || false;
-  const isEmployee = payrollData?.role_type?.includes('Employee') || false;
+  const isCommissionBased = currentPayrollData?.role_type?.includes('Commission') || false;
+  const isHourlyBased = currentPayrollData?.role_type?.includes('Hourly') || false;
+  const isEmployee = currentPayrollData?.role_type?.includes('Employee') || false;
 
   if (!payrollData) {
     return (
@@ -101,8 +114,14 @@ const handleSendPayroll = async () => {
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Confirm Payroll</h1>
           <p className="text-gray-600 mt-2">
-            Review and confirm payroll for {payrollData.user_name}
+            Review and confirm payroll for {currentPayrollData.user_name}
           </p>
+          {/* NEW: Show if data has been modified */}
+          {editedPayrollData && JSON.stringify(editedPayrollData) !== JSON.stringify(payrollData) && (
+            <p className="text-amber-600 text-sm mt-1 font-medium">
+              ⚠ Payroll data has been manually adjusted
+            </p>
+          )}
         </div>
       </div>
 
@@ -123,8 +142,9 @@ const handleSendPayroll = async () => {
       {/* Payroll Summary */}
       <div className="bg-white shadow-lg rounded-lg overflow-hidden">
         <PayrollSummaryTable
-          payrollData={payrollData}
+          payrollData={payrollData} // Pass original data
           companyInfo={companyInfo}
+          onDataChange={handlePayrollDataChange} // NEW: Pass callback function
         />
       </div>
 
@@ -145,18 +165,18 @@ const handleSendPayroll = async () => {
         </div>
       </div>
 
-      {/* Summary Info */}
+      {/* Summary Info - UPDATED: Use current payroll data */}
       <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
         <h4 className="font-medium text-blue-900 mb-2">Payroll Summary</h4>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
           <div>
             <span className="font-medium text-blue-800">Employee:</span>
-            <p className="text-blue-700">{payrollData.user_name}</p>
+            <p className="text-blue-700">{currentPayrollData.user_name}</p>
           </div>
           <div>
             <span className="font-medium text-blue-800">Pay Period:</span>
             <p className="text-blue-700">
-              {formatDateString(payrollData.pay_period_start)} - {formatDateString(payrollData.pay_period_end)}
+              {formatDateString(currentPayrollData.pay_period_start)} - {formatDateString(currentPayrollData.pay_period_end)}
             </p>
           </div>
           <div>
@@ -165,23 +185,23 @@ const handleSendPayroll = async () => {
               {new Intl.NumberFormat('en-CA', {
                 style: 'currency',
                 currency: 'CAD'
-              }).format(payrollData.totals?.net_payment || 0)}
+              }).format(currentPayrollData.totals?.net_payment || 0)}
             </p>
           </div>
         </div>
 
-        {/* Role-specific details */}
+        {/* Role-specific details - UPDATED: Use current data */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm mt-4 pt-4 border-t border-blue-200">
           <div>
             <span className="font-medium text-blue-800">Role:</span>
-            <p className="text-blue-700">{payrollData.role_type}</p>
+            <p className="text-blue-700">{currentPayrollData.role_type}</p>
           </div>
 
           {isHourlyBased && (
             <>
               <div>
                 <span className="font-medium text-blue-800">Hours Worked:</span>
-                <p className="text-blue-700">{payrollData.total_hours} hours</p>
+                <p className="text-blue-700">{currentPayrollData.total_hours} hours</p>
               </div>
               <div>
                 <span className="font-medium text-blue-800">Hourly Rate:</span>
@@ -189,7 +209,7 @@ const handleSendPayroll = async () => {
                   {new Intl.NumberFormat('en-CA', {
                     style: 'currency',
                     currency: 'CAD'
-                  }).format(payrollData.hourly_wage || 0)}
+                  }).format(currentPayrollData.hourly_wage || 0)}
                 </p>
               </div>
             </>
@@ -199,7 +219,7 @@ const handleSendPayroll = async () => {
             <>
               <div>
                 <span className="font-medium text-blue-800">Commission Rate:</span>
-                <p className="text-blue-700">{(payrollData.commission_rate * 100).toFixed(1)}%</p>
+                <p className="text-blue-700">{(currentPayrollData.commission_rate * 100).toFixed(1)}%</p>
               </div>
               <div>
                 <span className="font-medium text-blue-800">Gross Income:</span>
@@ -207,14 +227,14 @@ const handleSendPayroll = async () => {
                   {new Intl.NumberFormat('en-CA', {
                     style: 'currency',
                     currency: 'CAD'
-                  }).format(payrollData.earnings?.gross_income || 0)}
+                  }).format(currentPayrollData.earnings?.gross_income || 0)}
                 </p>
               </div>
             </>
           )}
         </div>
 
-        {/* Commission-specific breakdown */}
+        {/* Commission-specific breakdown - UPDATED: Use current data */}
         {isCommissionBased && (
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm mt-4 pt-4 border-t border-blue-200">
             <div>
@@ -223,7 +243,7 @@ const handleSendPayroll = async () => {
                 {new Intl.NumberFormat('en-CA', {
                   style: 'currency',
                   currency: 'CAD'
-                }).format(payrollData.deductions?.commission_deduction || 0)}
+                }).format(currentPayrollData.deductions?.commission_deduction || 0)}
               </p>
             </div>
             <div>
@@ -232,17 +252,17 @@ const handleSendPayroll = async () => {
                 {new Intl.NumberFormat('en-CA', {
                   style: 'currency',
                   currency: 'CAD'
-                }).format(payrollData.earnings?.pos_fees || 0)}
+                }).format(currentPayrollData.earnings?.pos_fees || 0)}
               </p>
             </div>
-            {payrollData.earnings?.vacation_pay > 0 && (
+            {currentPayrollData.earnings?.vacation_pay > 0 && (
               <div>
                 <span className="font-medium text-blue-800">Vacation Pay:</span>
                 <p className="text-blue-700">
                   {new Intl.NumberFormat('en-CA', {
                     style: 'currency',
                     currency: 'CAD'
-                  }).format(payrollData.earnings?.vacation_pay || 0)}
+                  }).format(currentPayrollData.earnings?.vacation_pay || 0)}
                 </p>
               </div>
             )}
@@ -252,13 +272,13 @@ const handleSendPayroll = async () => {
                 {new Intl.NumberFormat('en-CA', {
                   style: 'currency',
                   currency: 'CAD'
-                }).format(payrollData.earnings?.tax_gst || 0)}
+                }).format(currentPayrollData.earnings?.tax_gst || 0)}
               </p>
             </div>
           </div>
         )}
 
-        {/* Tax Deductions Display for Employees */}
+        {/* Tax Deductions Display for Employees - UPDATED: Use current data */}
         {isEmployee && (
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm mt-4 pt-4 border-t border-blue-200">
             <div>
@@ -267,7 +287,7 @@ const handleSendPayroll = async () => {
                 {new Intl.NumberFormat('en-CA', {
                   style: 'currency',
                   currency: 'CAD'
-                }).format(payrollData.deductions?.federal_tax || 0)}
+                }).format(currentPayrollData.deductions?.federal_tax || 0)}
               </p>
             </div>
             <div>
@@ -276,7 +296,7 @@ const handleSendPayroll = async () => {
                 {new Intl.NumberFormat('en-CA', {
                   style: 'currency',
                   currency: 'CAD'
-                }).format(payrollData.deductions?.provincial_tax || 0)}
+                }).format(currentPayrollData.deductions?.provincial_tax || 0)}
               </p>
             </div>
             <div>
@@ -285,7 +305,7 @@ const handleSendPayroll = async () => {
                 {new Intl.NumberFormat('en-CA', {
                   style: 'currency',
                   currency: 'CAD'
-                }).format(payrollData.deductions?.cpp || 0)}
+                }).format(currentPayrollData.deductions?.cpp || 0)}
               </p>
             </div>
             <div>
@@ -294,13 +314,13 @@ const handleSendPayroll = async () => {
                 {new Intl.NumberFormat('en-CA', {
                   style: 'currency',
                   currency: 'CAD'
-                }).format(payrollData.deductions?.ei || 0)}
+                }).format(currentPayrollData.deductions?.ei || 0)}
               </p>
             </div>
           </div>
         )}
 
-        {/* YTD Contributions Display */}
+        {/* YTD Contributions Display - UPDATED: Use current data */}
         {isEmployee && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mt-4 pt-4 border-t border-blue-200">
             <div>
@@ -309,14 +329,14 @@ const handleSendPayroll = async () => {
                 {new Intl.NumberFormat('en-CA', {
                   style: 'currency',
                   currency: 'CAD'
-                }).format((payrollData.breakdown?.cpp_ytd_after || 0) - (payrollData.deductions?.cpp || 0))}
+                }).format((currentPayrollData.breakdown?.cpp_ytd_after || 0) - (currentPayrollData.deductions?.cpp || 0))}
               </p>
               <span className="font-medium text-blue-800">YTD CPP After:</span>
               <p className="text-blue-700">
                 {new Intl.NumberFormat('en-CA', {
                   style: 'currency',
                   currency: 'CAD'
-                }).format(payrollData.breakdown?.cpp_ytd_after || 0)}
+                }).format(currentPayrollData.breakdown?.cpp_ytd_after || 0)}
               </p>
             </div>
             <div>
@@ -325,14 +345,14 @@ const handleSendPayroll = async () => {
                 {new Intl.NumberFormat('en-CA', {
                   style: 'currency',
                   currency: 'CAD'
-                }).format((payrollData.breakdown?.ei_ytd_after || 0) - (payrollData.deductions?.ei || 0))}
+                }).format((currentPayrollData.breakdown?.ei_ytd_after || 0) - (currentPayrollData.deductions?.ei || 0))}
               </p>
               <span className="font-medium text-blue-800">YTD EI After:</span>
               <p className="text-blue-700">
                 {new Intl.NumberFormat('en-CA', {
                   style: 'currency',
                   currency: 'CAD'
-                }).format(payrollData.breakdown?.ei_ytd_after || 0)}
+                }).format(currentPayrollData.breakdown?.ei_ytd_after || 0)}
               </p>
             </div>
           </div>
@@ -353,10 +373,14 @@ const handleSendPayroll = async () => {
             <strong>Note:</strong> Clicking "Send Payroll" will:
           </p>
           <ul className="list-disc list-inside mt-2 space-y-1">
-            <li>Email the payslip to {payrollData.user_name}'s registered email address</li>
+            <li>Email the payslip to {currentPayrollData.user_name}'s registered email address</li>
             <li>Update the employee's year-to-date (YTD) pay totals</li>
             <li>Mark this payroll as processed in the system</li>
             {notes.trim() && <li>Include your additional notes in the payslip email</li>}
+            {/* NEW: Show if using edited data */}
+            {editedPayrollData && JSON.stringify(editedPayrollData) !== JSON.stringify(payrollData) && (
+              <li className="text-amber-700 font-medium">Use the manually adjusted payroll amounts</li>
+            )}
           </ul>
         </div>
       </div>
