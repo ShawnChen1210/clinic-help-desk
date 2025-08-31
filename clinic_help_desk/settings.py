@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'tailwind',
     'theme',
     'rest_framework',
+    'anymail',
     'corsheaders',
 ]
 
@@ -160,17 +161,6 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 LOGOUT_URL = '/logout/'  # or whatever your logout URL is
 LOGOUT_REDIRECT_URL = '/'  # redirect to home instead of admin
 
-#email stuff
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp.gmail.com'  # SMTP server host
-EMAIL_PORT = 587  # SMTP server port (587 for TLS, 465 for SSL)
-EMAIL_USE_TLS = True  # True for TLS, False for SSL
-EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER')
-EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
-EMAIL_USE_SSL = False  # Set to True if using SSL
-DEFAULT_FROM_EMAIL = 'clinic.help.desk.app@gmail.com'
-PASSWORD_RESET_TIMEOUT = 14400 #token available for 4 hours
-
 #tailwind stuff
 TAILWIND_APP_NAME = 'theme'
 NPM_BIN_PATH = os.getenv('NPM_BIN_PATH')
@@ -230,4 +220,13 @@ LOGGING = {
     },
 }
 
+#email stuff (using anymail with mailgun)
+EMAIL_BACKEND = 'anymail.backends.mailgun.EmailBackend'
 
+ANYMAIL = {
+    "MAILGUN_API_KEY": os.getenv("MAILGUN_API_KEY"),
+    "MAILGUN_SENDER_DOMAIN": os.getenv("MAILGUN_SENDER_DOMAIN"),
+}
+
+DEFAULT_FROM_EMAIL = f'clinic-help-desk@{os.getenv("MAILGUN_SENDER_DOMAIN")}'
+PASSWORD_RESET_TIMEOUT = 14400 #account registration token available for 4 hours

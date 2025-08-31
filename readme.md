@@ -25,3 +25,18 @@ Google Sheets Overview:
 - Every user, when creating a new spreadsheet, creates a new google sheets file, NOT a new tab inside a google sheets file. This is essential for many many parts of the code logic, as 'Sheet1', the default name for the main sheet tab in google sheets after creating a google sheet file, is used to do read and write api operations on the entire sheet. The tab value **Must Not** be changed manually in google sheets, warning for developers and users alike.
 - api/utils.py inside the api django app contains functions for building google credential objects, which is used to do all API operations and provide verification.
 - api/services/google_sheets.py contains functions for doing API call CRUD operations with the google sheet. feel free to add more files inside the services folder if other services are used.
+
+Production Workflow:
+-
+Local Editor:
+1. pip freeze > requirements.txt
+2. git add .
+3. git commit blah blah blah
+4. git push origin main
+
+DigitalOcean Droplet:
+1. source .venv/bin/activate
+2. pip install -r requirements.txt
+3. git pull origin main
+4. cd frontend, then npm run build
+5. python manage.py collect
