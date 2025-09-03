@@ -33,10 +33,15 @@ Local Editor:
 2. git add .
 3. git commit blah blah blah
 4. git push origin main
+5. python manage.py makemigrations (if you changed models)
 
 DigitalOcean Droplet:
 1. source .venv/bin/activate
-2. pip install -r requirements.txt
-3. git pull origin main
-4. cd frontend, then npm run build
-5. python manage.py collect
+2. git pull origin main
+3. pip install -r requirements.txt
+4. cd frontend, then: npm install + npm run build
+5. add new .env variables (if any)
+6. python manage.py migrate (if there are new migrations)
+7. python manage.py collectstatic
+8. sudo systemctl restart gunicorn && sudo systemctl restart nginx
+9. test if website works on 138.197.214.136
