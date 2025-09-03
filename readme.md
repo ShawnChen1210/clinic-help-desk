@@ -36,12 +36,13 @@ Local Editor:
 5. python manage.py makemigrations (if you changed models)
 
 DigitalOcean Droplet:
-1. source .venv/bin/activate
-2. git pull origin main
-3. pip install -r requirements.txt
-4. cd frontend, then: npm install + npm run build
-5. add new .env variables (if any)
-6. python manage.py migrate (if there are new migrations)
-7. python manage.py collectstatic
-8. sudo systemctl restart gunicorn && sudo systemctl restart nginx
-9. test if website works on 138.197.214.136
+1. cd clinic-help-desk
+2. source .venv/bin/activate
+3. git pull origin main
+4. pip install -r requirements.txt
+5. cd frontend, then: npm install + npm run build
+6. add new .env variables (if any)
+7. python manage.py migrate (if there are new migrations)
+8. python manage.py collectstatic
+9. sudo systemctl restart gunicorn && sudo systemctl restart nginx
+10. test if website works on 138.197.214.136

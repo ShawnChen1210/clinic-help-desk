@@ -228,5 +228,5 @@ ANYMAIL = {
     "MAILGUN_SENDER_DOMAIN": os.getenv("MAILGUN_SENDER_DOMAIN"),
 }
 
-DEFAULT_FROM_EMAIL = f'clinic-help-desk@{os.getenv("MAILGUN_SENDER_DOMAIN")}'
+DEFAULT_FROM_EMAIL = f'noreply@{os.getenv("MAILGUN_SENDER_DOMAIN")}'
 PASSWORD_RESET_TIMEOUT = 14400 #account registration token available for 4 hours
