@@ -1,14 +1,29 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block title %} Home {% endblock %}
 
 {% block content %}
+
+<div class="flex flex-col justify-center items-center" style="min-height: 89vh; background-image: url('{% static 'images/Mesa de trabajo 1.svg' %}'); background-size: cover; background-position: center; background-repeat: no-repeat;">
     {% if messages %}
     {% for message in messages %}
-    <div class="text-white bg-green-300 rounded-md">
-    {{ message }}
+    <div class="text-white bg-green-300 rounded-md p-3 mb-4">
+        {{ message }}
     </div>
     {% endfor %}
     {% endif %}
-<h1>Welcome to Clinic Help Desk!</h1>
+    
+    <div class="text-center space-y-6">
+        <div>
+            <p class="text-sm text-gray-600 mb-2">Welcome To:</p>
+            <h1 class="text-4xl md:text-5xl font-bold text-gray-800 mb-4">Clinic Help Desk!</h1>
+            <p class="text-sm text-gray-600 max-w-md">contact the site administrator at info@therapyonthego.ca for access!</p>
+        </div>
+        
+        {% if request.user.userprofile.is_verified %}
+            <a class="inline-block px-8 py-3 bg-gray-800 text-white rounded-lg hover:bg-gray-700 transition-colors duration-200 font-medium" href="{% url 'chd_app' %}">Launch App</a>
+        {% endif %}
+    </div>
+</div>
 {% endblock %}

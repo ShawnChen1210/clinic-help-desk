@@ -10,33 +10,35 @@
 </head>
 <body>
     <header>
-    <div class="bg-blue-900 text-white">
-        <nav class="flex justify-between items-center">
+    <div class="bg-white text-gray-700">
+        <nav class="flex justify-between items-center p-4">
         
             <div class="flex space-x-4">    
-                <a class="p-4" href="{% url 'home' %}">Home</a>
-                {% if request.user.userprofile.is_verified %}
-                <a class="p-4" href="{% url 'chd_app' %}">Launch App</a>
-                {% endif %}
+                <a class="flex items-center space-x-2 px-4 py-2 rounded-lg hover:bg-gray-200 hover:text-white transition-all duration-200" href="{% url 'home' %}">
+                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"/>
+                    </svg>
+                    <span>Home</span>
+                </a>
             </div>
         
             <div class="flex space-x-4">
                 {% if user.is_authenticated %}
-                    <a class="p-4 flex justify-end" href="{% url 'profile' %}">Profile</a>
+                    <a class="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-200 hover:!text-white hover:border-gray-700 transition-all duration-200" href="{% url 'profile' %}">Profile</a>
                     <form method="post" action="{% url 'logout' %}" style="display: inline;">
                         {% csrf_token %}
-                        <button class="p-4 flex justify-end" type="submit">Logout</button>
+                        <button class="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-200 hover:!text-white hover:border-gray-700 transition-all duration-200" type="submit">Logout</button>
                     </form>
                 {% else %}
-                    <a class="p-4 flex justify-end" href="{% url 'login_user' %}">Login</a>
-                    <a class="p-4 flex justify-end" href="{% url 'register' %}">Register</a>
+                    <a class="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-200 hover:!text-white hover:border-gray-700 transition-all duration-200" href="{% url 'login_user' %}">Login</a>
+                    <a class="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-200 hover:!text-white hover:border-gray-700 transition-all duration-200" href="{% url 'register' %}">Register</a>
                 {% endif %}
             </div>
         </nav>
     </div>
     </header>
     
-    <main class="m-10">
+    <main>
         {% block content %}
         {% endblock %}
     </main>
